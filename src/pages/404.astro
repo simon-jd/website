@@ -1,0 +1,70 @@
+---
+// The 404 page (spec §5), built as /404.html: a short note and the ways back in.
+import Relief from '../components/Relief.astro';
+import Base from '../layouts/Base.astro';
+import { SITE } from '../lib/site.ts';
+
+const LINKS = [
+  { href: '/', label: 'home' },
+  { href: '/work/', label: 'work' },
+  { href: '/writing/', label: 'writing' },
+];
+---
+
+<Base title={`Page not found · ${SITE.title}`} description="There is no page at this address.">
+  <Relief slot="art" variant="corner" />
+
+  <div class="wrap head">
+    <p class="kicker">404</p>
+    <h1>Page not found</h1>
+    <p class="dek">There is no page at this address. It may have moved, or the link may be mistyped.</p>
+    <ul class="links">
+      {
+        LINKS.map((link) => (
+          <li>
+            <a href={link.href}>{link.label}</a>
+          </li>
+        ))
+      }
+    </ul>
+  </div>
+</Base>
+
+<style>
+  .head {
+    padding-top: 44px;
+  }
+
+  h1 {
+    font-size: clamp(48px, 35px + 3vw, 70px);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+  }
+
+  .dek {
+    max-width: 700px;
+    margin: 14px 0 0;
+    color: var(--muted);
+    font: italic 400 24px/1.4 var(--font-display);
+  }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 12px 22px;
+    margin: 28px 0 0;
+    padding: 0;
+    font: 14px/1.4 var(--font-mono);
+    list-style: none;
+  }
+
+  @media (width <= 640px) {
+    .head {
+      padding-top: 30px;
+    }
+
+    .dek {
+      font-size: 21px;
+    }
+  }
+</style>

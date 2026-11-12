@@ -1,0 +1,21 @@
+{
+  "id": "gamma",
+  "header": {
+    "title": "Gamma — Minimal Synthetic Project",
+    "date": "2026",
+    "repository": {
+      "github_url": "https://github.com/simon-jd/gamma"
+    }
+  },
+  "workstreams": [
+    {
+      "id": "gamma-main",
+      "title": "Synthetic main workstream",
+      "period": "2026",
+      "tracks": ["ml_infra/inference_serving"],
+      "tech_stack": ["vLLM"],
+      "summary": "A minimal synthetic workstream.",
+      "bullets": ["Handled 7 synthetic cases."]
+    }
+  ]
+}

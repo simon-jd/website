@@ -1,0 +1,147 @@
+{
+  "id": "sponsoratlas",
+  "title": "SponsorAtlas — H-1B Employer Data Platform: Entity Resolution with Stable IDs, dbt Fiscal-Year Backfill, Snowflake Trial Warehouse, Airflow Schedules, Cube, Tableau Public and deck.gl H3 Map",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/SponsorAtlas",
+  "workstreams": [
+    {
+      "id": "employer-entity-resolution",
+      "title": "Employer entity resolution with Splink and stable employer IDs",
+      "period": "Oct 2026",
+      "tracks": [
+        "de",
+        "mle/applied_ml"
+      ],
+      "tech_stack": [
+        "Python",
+        "Splink 5.0",
+        "DuckDB 2.0",
+        "PyArrow"
+      ],
+      "summary": "Resolves the many spellings of one employer across DOL LCA disclosure files and USCIS H-1B Employer Data Hub files into one employer ID. Splink 5 (u/EM, fixed seed) scores candidate pairs blocked on name token + state and full strong IDs; a constrained clustering step accepts an edge only with state + city or ZIP context and vetoes merges across conflicting full tax IDs, known country conflicts or tax-ID suffix conflicts, keeping a strong-ID set per cluster so a weak record cannot join two different tax IDs transitively. Employer IDs come from an immutable registry archived by SHA-256: each rebuild inherits the latest registry, and any merge, split or retraction stops for review instead of silently renumbering.",
+      "bullets": [
+        "Resolved 161,596 employer source records from 808,282 DOL LCA and released USCIS H-1B rows into 98,188 employers with Splink 5 (u/EM) on DuckDB and constrained clustering that vetoes merges across conflicting tax IDs; on a 105-pair human-labelled holdout at threshold 0.875: precision 1.000, recall 0.909 (TP 50, FP 0, FN 5, TN 50).",
+        "Measured the same holdout at thresholds 0.80, 0.85 and 0.90 with identical results, and the 42-pair hard-case subset at TP 30, FP 0, FN 3, TN 9; all 5 misses are missed merges (DBA, abbreviated or truncated names, a tax ID missing on one side).",
+        "Kept employer IDs stable across rebuilds with a SHA-256-named registry archive that each rebuild inherits and that stops with an identity-review error on any merge, split or retraction; a full-year re-prediction in inherit mode changed 0 of 161,596 employer IDs.",
+        "Labelled 559 candidate pairs (243 hard cases) blind to model output, retrained with all 203 holdout endpoints excluded from u/EM, and confirmed the retrained model's clusters equal the deployed ones (0 of 161,596 records differ)."
+      ]
+    },
+    {
+      "id": "fiscal-year-backfill",
+      "title": "Fiscal-year backfill from official files with dbt on DuckDB, release gates and reconciliation",
+      "period": "Oct 2026",
+      "tracks": [
+        "de"
+      ],
+      "tech_stack": [
+        "Python",
+        "dbt-core 1.12",
+        "dbt-duckdb 1.11",
+        "DuckDB 2.0",
+        "Apache Airflow 3.3",
+        "Astronomer Cosmos 1.15",
+        "PostgreSQL 16 logical replication"
+      ],
+      "summary": "Archives every official DOL LCA and USCIS file by SHA-256 with provenance, loads them into RAW tables in DuckDB, and builds dbt staging (per-release column maps, annual wages, per-fiscal-year gates), an SCD2 employer snapshot, four dimensions and three facts with enforced contracts. A backfill step runner (also wrapped as a manual Airflow DAG) rebuilds a fiscal year from the archives into fresh databases. A Postgres logical-replication reader lands CDC changes into RAW.",
+      "bullets": [
+        "Loaded 717,449 LCA rows from five SHA-256-pinned official DOL files into DuckDB with equal RAW and staging row counts per file, and built 713,467 cases (latest status per case number) with 0 content mismatches between a case and its winning source row.",
+        "Released USCIS rows only when they carry a state, city or ZIP and reconciled the rest explicitly (FY2023: 33,332 = 30,857 released + 2,475 excluded); including them would fail the 5% missing-state gate at 7.44%.",
+        "Rebuilt the pipeline from ER export through the SCD2 dimensions to facts in 99.7 s with the backfill step runner: all 7 steps exited 0 and 30/30 dimension and 48/48 fact dbt nodes passed (local DuckDB, one machine).",
+        "Landed inserts, updates and deletes from Postgres 16 logical replication (pgoutput) into DuckDB RAW within 29.44 s at 30 s polling with an own pgoutput reader, in a Docker drill on synthetic rows."
+      ]
+    },
+    {
+      "id": "snowflake-warehouse-build",
+      "title": "Snowflake warehouse build on a trial account: Terraform, script-loaded RAW, dbt and Cube, compared with DuckDB",
+      "period": "Oct–Nov 2026",
+      "tracks": [
+        "de"
+      ],
+      "tech_stack": [
+        "Snowflake",
+        "Terraform 1.13",
+        "dbt-core 1.12",
+        "dbt-snowflake 1.12",
+        "Cube 1.8",
+        "Python",
+        "DuckDB 2.0"
+      ],
+      "summary": "Provisions a Snowflake trial account's databases, schemas, roles, policies, tags and service users with Terraform (the hand-created warehouse is imported into the state), loads RAW by script (PUT + COPY INTO, not Airbyte), runs the project's existing dbt build there, compares the result with the local DuckDB build by per-column checksums, and verifies the Cube REST layer against it. Snowflake's dimensions and facts read script-loaded exports of the local ER output and FACTS_INPUT, so it is not independent of the local build.",
+      "bullets": [
+        "Provisioned Snowflake databases, schemas, roles, policies, tags and 3 key-pair-only service users on a trial account with Terraform and imported the hand-created X-Small warehouse (auto_suspend 60): 22 objects plus 69 grants and attachments in state; 7 live access tests passed (plus 1 offline helper), with the analyst service user reading all 7 marts and denied the 5 checked RAW, STAGING and INTERMEDIATE tables.",
+        "Loaded 8 official DOL, USCIS and BLS files into Snowflake RAW by script (PUT to a table stage + COPY INTO, not Airbyte): 1,224,291 rows with difference 0 per file, and all 20 RAW tables matching on row count and fingerprint (the 8 files, 6 exports of local dimension and fact inputs, 5 synthetic test fixtures and 1 empty table).",
+        "Ran the project's dbt build on Snowflake by hand in four stages at 2 threads on an X-Small warehouse: seed 15/15, staging 45/45, dimensions 30/30 and facts 48/48 passed in 122.0 s of summed dbt run time, 138 executions of 110 distinct nodes (15 seeds, 18 models, 1 snapshot, 75 data tests, 1 unit test; one run on a trial account).",
+        "Compared the Snowflake build with the local DuckDB build on the same exported inputs by per-column checksums of the non-float, non-timestamp columns over 18 relations: all row counts equal, 14 relations matching on every checksummed column (some of those columns all NULL) and 4 with explained differences (a snapshot hash, the same hash renamed, and a source-path label twice); 10 of 11 metrics equal (one differs only by Snowflake AVG rounding) and a SHA-256 over 280,799 LCA groups equal.",
+        "Verified the Cube REST layer on Snowflake as a read-only analyst service user: 7 metrics, 5 dimensions, 3 views and 2 external rollups passed, with all 280,799 five-dimension groups hashing equal to the local DuckDB oracle, after an exact check caught the verifier's pagination stopping at offset 250,000 (665,213 of 713,467 cases).",
+        "Tested Snowflake row-access and masking policies on probe tables, 5/5 (3 live, 2 static); the policies are not attached to the real marts."
+      ]
+    },
+    {
+      "id": "airflow-snowflake-schedule",
+      "title": "Scheduled Airflow and Cosmos DAGs on the Snowflake trial: daily job-board loads, a weekly full dbt build and credit guards",
+      "period": "Nov 2026",
+      "tracks": [
+        "de"
+      ],
+      "tech_stack": [
+        "Apache Airflow 3.3",
+        "Astronomer Cosmos 1.15",
+        "dbt-core 1.12",
+        "dbt-snowflake 1.12",
+        "Snowflake",
+        "Python",
+        "systemd"
+      ],
+      "summary": "Two Airflow 3.3 DAGs run on a schedule against the Snowflake trial from a development deployment on one machine (LocalExecutor, SQLite metadata database, systemd user units). The daily DAG fetches 13 public Greenhouse, Lever and Ashby job boards (reusing a complete same-day archive when one exists, as the 2026-11-06 run did), loads the rows into Snowflake RAW by script, updates the daily job-posting fact incrementally with dbt by rewriting its latest observation dates, and runs the fact's gates. The weekly DAG runs the full dbt build as one Cosmos task per model, seed and snapshot, then the quality gates and a Cube refresh from Snowflake. A preflight guard skips a SponsorAtlas run and writes a STOP marker before the project's estimated credits or the shared account's metered credits pass their limits.",
+      "bullets": [
+        "Ran two scheduled Airflow 3.3 DAGs with Astronomer Cosmos against a Snowflake trial account from 2026-11-06 to 2026-11-10: 5 of 5 daily runs (6 tasks each) and 1 of 1 weekly full build (39 tasks; 180 dbt node results, 0 failures, 485 s) succeeded with every task on its first try (development deployment on one machine: LocalExecutor, SQLite).",
+        "Fetched 13 public Greenhouse, Lever and Ashby job boards daily at 08:00 UTC from 2026-11-07 to 2026-11-10 (4,904 to 4,911 posting observations a day), loaded them into Snowflake RAW by script and updated the daily job-posting fact incrementally with dbt; each of those 4 runs passed the 24-hour source freshness check and all 8 dbt nodes in 58 to 91 s end to end.",
+        "Gated each SponsorAtlas run on the shared Snowflake trial account with a credit preflight that skips the run and writes a STOP marker once the project's estimated-credit ledger reaches 2.5 or the account's metered usage plus the run's timeout cap (0.52 credits daily, 0.77 weekly) would reach 123."
+      ]
+    },
+    {
+      "id": "tableau-public-snapshot",
+      "title": "Tableau Public dashboard from a reconciled snapshot of the Snowflake marts, packaged as Hyper extracts",
+      "period": "Nov 2026",
+      "tracks": [
+        "de"
+      ],
+      "tech_stack": [
+        "Tableau Public 2026.2",
+        "Tableau Hyper API",
+        "Snowflake",
+        "Python",
+        "DuckDB 2.0"
+      ],
+      "summary": "Tableau Public has no Snowflake connector and accepts only extract-based workbooks, so an export step writes a SHA-256-pinned snapshot of the Snowflake public marts, and a Python generator builds the workbook (4 worksheets and 1 dashboard) with five Tableau Hyper extracts. Employers appear by ID, not name; the downloadable case table keeps raw DOL case numbers, so the IDs can likely be mapped back to names through DOL's public file. After publishing, a script fetches the public Reconciliation sheet and compares it with the snapshot's manifest.",
+      "bullets": [
+        "Published a Tableau Public dashboard (4 worksheets, 1 dashboard) built from a static snapshot of the Snowflake public marts as five Hyper extracts (713,467 LCA cases); the public Reconciliation sheet, fetched and compared by script, matched the snapshot on 5 of 5 key numbers within 1e-8.",
+        "Checked the published Who, Pay and When sheets against DuckDB over the snapshot's CSV files with 0 differences beyond display rounding, and found 0 of 82,905 withheld employer-name strings in the downloadable extracts, workbook XML and sheet exports, with employers shown by ID."
+      ]
+    },
+    {
+      "id": "semantic-layer-and-map",
+      "title": "Cube semantic layer and a bilingual Next.js site with a deck.gl H3 worksite map",
+      "period": "Oct 2026",
+      "tracks": [
+        "sde",
+        "de"
+      ],
+      "tech_stack": [
+        "TypeScript",
+        "Next.js 16",
+        "React 19",
+        "deck.gl 9.4",
+        "h3-js 4.5",
+        "Cube 1.8",
+        "Playwright",
+        "axe-core"
+      ],
+      "summary": "A Cube 1.8 REST layer over a Parquet export of the full-year facts serves a bilingual (English/Chinese) Next.js 16 site with employer search, detail, comparison and a deck.gl H3 map of worksites and wages with an SVG fallback. Worksites are projected to Census 2020 ZIP-area, place or county reference points and aggregated to H3 cells in the Next.js server with h3-js.",
+      "bullets": [
+        "Served the full-year facts through a Cube 1.8 REST layer whose seven metrics equal an independent SQL oracle over 713,467 rows in 280,799 five-dimension groups, behind a bilingual Next.js 16 site; browser E2E 14/14 including keyboard-only search → detail → compare and axe accessibility checks.",
+        "Projected 713,467 cases onto 517,991 H3 frequency rows (103 MB) at Census ZIP-area, place or county reference points with 336 unmapped, for a deck.gl map whose per-frame script + render time p95 was 4.9 ms at 1x and 9.4 ms at 4x CPU throttling over 704 cells in a scripted pan/zoom (Playwright Chromium, RTX 4090, one run)."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,25 @@
+{
+  "name": "Test Person",
+  "email": "test.person@example.com",
+  "phone": "+1 555 0100",
+  "linkedin": "https://www.linkedin.com/in/test-person/",
+  "github": "https://github.com/simon-jd",
+  "website": "",
+  "location": "Testville, ZZ",
+  "needs_sponsorship": true,
+  "education": [
+    {
+      "school": "Synthetic University",
+      "location": "Testville, ZZ",
+      "degree": "Master of Science in Synthetic Studies",
+      "gpa": "4.0",
+      "date": "Sep. 2025 -- May 2027",
+      "coursework": ["Synthetic Systems"],
+      "notes": "A synthetic note."
+    }
+  ],
+  "publications": [],
+  "skills_bank": {
+    "languages": ["Synthetic"]
+  }
+}

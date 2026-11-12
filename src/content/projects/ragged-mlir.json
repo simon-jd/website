@@ -1,0 +1,69 @@
+{
+  "id": "ragged-mlir",
+  "title": "ragged-mlir — MLIR Compiler for Segmented Reductions on Ragged Tensors: Device-Side Segment Binning, Online Softmax, Fitted Schedule Cost Model",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/ragged-mlir",
+  "workstreams": [
+    {
+      "id": "ragged-compiler",
+      "title": "MLIR dialect, passes and CUDA code generation for segmented sum, max and softmax",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/compilers",
+        "ml_infra/gpu_kernels"
+      ],
+      "tech_stack": [
+        "MLIR",
+        "LLVM",
+        "C++",
+        "TableGen",
+        "NVVM / PTX",
+        "CUDA Driver API",
+        "Python",
+        "PyTorch",
+        "nanobind",
+        "lit / FileCheck",
+        "compute-sanitizer",
+        "CMake",
+        "Ninja"
+      ],
+      "summary": "Out-of-tree compiler on MLIR 23.1.3 with its own dialect and passes that generates CUDA kernels (sm_89, CUDA 13.2) for segmented sum, max and softmax over ragged [N, D] tensors with B+1 offsets in f32 and bf16, lowering through the GPU and NVVM dialects to PTX and ptxas and launching through the CUDA Driver API on PyTorch streams. Segments are binned on the device into warp, block and 8-block classes drained by persistent workers; measured on one shared RTX 4090 with unlocked clocks on synthetic segment lengths (three seeds) and checked against a float64 oracle.",
+      "bullets": [
+        "Built an out-of-tree MLIR 23.1.3 compiler with a ragged dialect (segment_reduce and segment_softmax with a verifier) and legalization, planning, fusion and lowering passes that go through the GPU and NVVM dialects to PTX and ptxas, writing a cubin plus a manifest (kernel order, grids, workspace shapes, ptxas resource usage) that the Python runtime validates before launching through a C++ CUDA Driver API module on PyTorch streams.",
+        "Mapped skewed segments on the device: a classify kernel bins segments of up to 32 rows to a warp, up to 4,096 rows to a 128-thread block and longer ones to 8 blocks with a combine kernel, each warp ranking its lanes with one shuffle scan and reserving queue positions with at most three atomics; with seed 711's 300,412-row segment, one block per segment took 84 μs on the D=1 sum and 264 μs on the D=1 softmax against 47 and 81 μs classified.",
+        "Computed softmax statistics in one online pass with a running reference that trails the maximum by at most one and compensated (Kahan) sums, so accuracy does not depend on segment length (tested on 65,536-row segments); against three passes in every class the D=128 long-tail softmax dropped from 631 to 404 μs and the uniform one from 624 to 310 μs, whose CTA kernel moves data at 0.96 TB/s against the 1.01 TB/s DRAM bandwidth.",
+        "Added row pipelining (eight loads in flight per lane, folded in row order so results stay bitwise identical to the rolled loop) and one aligned 16-byte vector access per thread and row: the D=128 long-tail max went from 189 to 180 μs and the softmax from 493 to 404 μs; vector access costs registers and makes the bf16 long-tail softmax slower (302 against 264 μs classified).",
+        "Moved launching from Python to a C++ launch plan per (N, B, concurrent) that issues every kernel and the stream fork and join in one native call, which in A/B runs cut host time per call from 64 to 23 μs for a D=1 sum and from 99 to 30 μs for a D=128 softmax; the three classes run concurrently on side streams, CTA chain first (uniform D=128 sum 133 μs against 176 μs split-first, A/B).",
+        "Verified it against a float64 NumPy oracle with fixed dtype-specific tolerances: 2,330 GPU tests pass (30 strict xfails where FBGEMM's jagged_softmax returns NaN), compute-sanitizer memcheck, racecheck, initcheck and synccheck report 0 errors and 0 hazards over 671 tests, and 41 lit/FileCheck and 1,190 host tests pass."
+      ]
+    },
+    {
+      "id": "schedule-cost-model",
+      "title": "Per-call schedule cost model and benchmark against seven comparisons",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/compilers",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "Python",
+        "PyTorch",
+        "CUDA",
+        "Triton",
+        "CUB",
+        "cuSPARSE",
+        "FBGEMM",
+        "Nsight Systems"
+      ],
+      "summary": "A linear cost model that, before each call, predicts the complete-call time of the device-classified schedule and of one block per segment from N, B, D, the longest segment and the bytes beyond the 72 MiB L2, and runs the faster; fitted on benchmark workloads and evaluated once on a held-out set fixed beforehand. Benchmarked on one shared RTX 4090 with unlocked clocks, synthetic segment lengths and three seeds against autotuned Triton, CUB, cuSPARSE, FBGEMM, torch.segment_reduce, compiled NJT and a one-block-per-segment CUDA kernel, where ragged loses most workloads.",
+      "bullets": [
+        "Built a per-call schedule choice: a classifying program also compiles its block-per-segment specialization, and a linear cost model in six terms with nonnegative coefficients picks the faster schedule from N, B, D, the longest segment (max_len, which a jagged tensor such as NJT carries) and the MiB beyond the L2, avoiding a device readback and synchronization on every call.",
+        "Diagnosed the first fit's misses with Nsight Systems traces: fitted on two shapes, it was within 3% of the faster schedule for only 115 of 189 inputs on seven held-out shapes, because its per-segment term absorbed the fixed cost of a classified call (it predicted 158 μs where 57 μs was measured at 65,536 segments) and it charged DRAM time for 64 MiB inputs that stay in the L2 (35 to 41% slower on the uniform D=32 and D=64 sum and max).",
+        "Refitted on 246 inputs in nine shapes with the bytes beyond the L2 as a term, then evaluated once on a second held-out set committed before the refit ran (8 new shapes, D=1 to 512, 512 to 200,000 segments, bimodal and exponential lengths, 144 inputs): within 3% of the faster schedule for 112 of 144 inputs warm and 104 cold, against 61 and 65 for the first model's choices replayed on the same runs.",
+        "Limit: the model sees N, B, D and the longest segment, not the length distribution, so on the held-out set it is more than 3% slower than the faster schedule for 32 of 144 inputs warm (40 cold), by 34 to 37% on the D=2 bimodal sum and max, and it classifies the bursty D=128 sum and max, 8% slower than block per segment.",
+        "Benchmarked 19 workloads (1M rows in 16,384 segments at D=1, 262,144 rows in 4,096 segments at D=128; uniform, long-tail and bursty lengths; medians of 15 processes) against the fastest of seven comparisons: in-sample for the cost model, ragged wins 4, ties 4 and loses 11 warm (1, 3 and 15 cold), e.g. 136 against 155 μs for torch.segment_reduce on the uniform D=128 sum but 34 against 15 μs on the uniform D=1 sum and 304 against 221 μs for tuned Triton on the bf16 long-tail softmax.",
+        "Traced the D=1 losses past host time: a warm call takes 33 to 35 μs of which the kernel is 14.4 to 14.8 μs, and replayed as a CUDA graph the call still takes 16 to 17 μs against 5.4 μs for compiled NJT on uniform lengths, so one block per segment over 16,384 short segments is slower than the comparisons' kernels, not only their launch path."
+      ]
+    }
+  ]
+}

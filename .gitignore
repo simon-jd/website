@@ -1,0 +1,16 @@
+# build and dependencies
+node_modules/
+/dist/
+.astro/
+.lighthouseci/
+
+# local settings
+.env
+.env.local
+
+# kept local, never committed
+legacy/
+.superpowers/
+docs/superpowers/
+
+.DS_Store

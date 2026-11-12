@@ -1,0 +1,91 @@
+---
+// An engraved line-art plate for a featured project (mockup lines 89–92): the SVG in
+// src/plates/<id>.svg, inlined and labelled "Plate I" to "Plate IV". The caption names
+// the image; a large plate also shows it underneath.
+interface Props {
+  /** The project id; it names the SVG file. */
+  id: string;
+  numeral: 1 | 2 | 3 | 4;
+  caption: string;
+  size?: 'card' | 'large';
+}
+
+const { id, numeral, caption, size = 'card' } = Astro.props;
+
+const files = import.meta.glob<string>('../plates/*.svg', { query: '?raw', import: 'default', eager: true });
+const source = files[`../plates/${id}.svg`];
+if (source === undefined) throw new Error(`Plate: no plate is drawn for "${id}" (src/plates/${id}.svg)`);
+const svg = source.match(/^\s*<svg\b[^>]*\bviewBox="([^"]+)"[^>]*>([\s\S]*)<\/svg>\s*$/);
+if (!svg) throw new Error(`Plate: src/plates/${id}.svg must be a single <svg> element with a viewBox`);
+const [, viewBox, body] = svg;
+const ROMAN = ['I', 'II', 'III', 'IV'];
+---
+
+<figure class:list={['plate', size]}>
+  <div class="frame">
+    <span class="numeral">{`Plate ${ROMAN[numeral - 1]}`}</span>
+    <svg viewBox={viewBox} role="img" aria-label={caption}><Fragment set:html={body} /></svg>
+  </div>
+  {size === 'large' && <figcaption>{caption}</figcaption>}
+</figure>
+
+<style>
+  .plate {
+    margin: 0;
+  }
+
+  .card {
+    margin-bottom: 14px;
+  }
+
+  .large {
+    max-width: 480px;
+  }
+
+  .frame {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    aspect-ratio: 16 / 10.5;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    background: var(--bg);
+  }
+
+  .numeral {
+    position: absolute;
+    top: 7px;
+    left: 10px;
+    color: var(--accent);
+    font: italic 400 14px var(--font-display);
+  }
+
+  .large .numeral {
+    top: 9px;
+    left: 12px;
+    font-size: 16px;
+  }
+
+  svg {
+    width: 86%;
+    height: auto;
+    margin-top: 8px;
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.1;
+  }
+
+  svg :global(text) {
+    stroke: none;
+    fill: var(--accent);
+    font: italic 400 15px var(--font-display);
+    text-anchor: middle;
+  }
+
+  figcaption {
+    margin-top: 10px;
+    color: var(--muted);
+    font: 12px/1.5 var(--font-mono);
+  }
+</style>

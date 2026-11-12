@@ -1,0 +1,149 @@
+---
+// A focus page, /focus/<id>/ (spec §5): one direction's kicker, title and one-paragraph
+// pitch (the MDX body), its curated projects as cards without plates in frontmatter
+// order (only the featured projects have one, so a plate would stand alone), then the
+// published posts that name one of those projects or share one of its tags, newest
+// first. Direction-specific résumés can link here.
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+import { MDX_COMPONENTS } from '../../components/mdx.ts';
+import ProjectGrid from '../../components/ProjectGrid.astro';
+import Relief from '../../components/Relief.astro';
+import WritingList from '../../components/WritingList.astro';
+import Base from '../../layouts/Base.astro';
+import { publishedPosts } from '../../lib/posts.ts';
+import { getProjects, type ProjectView } from '../../lib/projects.ts';
+import { SITE } from '../../lib/site.ts';
+import { isPublished, relatedForFocus } from '../../lib/writing.ts';
+
+interface Props {
+  entry: CollectionEntry<'focus'>;
+  projects: ProjectView[];
+}
+
+/** One page per published focus entry. Throws for any focus file, draft or not, that names a project not allowlisted. */
+export async function getStaticPaths() {
+  const [entries, projects] = await Promise.all([getCollection('focus'), getProjects()]);
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  return entries.flatMap((entry) => {
+    const curated = entry.data.projects.map((id) => {
+      const project = byId.get(id);
+      if (!project)
+        throw new Error(`src/content/focus/${entry.id}.mdx: project "${id}" is not in content/allowlist.yaml`);
+      return project;
+    });
+    return isPublished(entry.data, import.meta.env.PROD)
+      ? [{ params: { focus: entry.id }, props: { entry, projects: curated } }]
+      : [];
+  });
+}
+
+const { entry, projects } = Astro.props;
+const { title, kicker, summary } = entry.data;
+const { Content } = await render(entry);
+// relatedForFocus keeps the order it is given.
+const related = relatedForFocus(await publishedPosts(), entry.data);
+---
+
+<Base title={`${title} · ${SITE.title}`} description={summary}>
+  <Relief slot="art" variant="corner" />
+
+  <div class="wrap head">
+    <p class="kicker">{kicker}</p>
+    <h1>{title}</h1>
+    <div class="pitch">
+      <Content components={MDX_COMPONENTS} />
+    </div>
+  </div>
+
+  <section class="wrap section" aria-labelledby="projects">
+    <div class="section-head">
+      <h2 id="projects">Projects</h2>
+      <a href="/work/">all work{' '}<span aria-hidden="true">→</span></a>
+    </div>
+    <ProjectGrid projects={projects} plates={false} />
+  </section>
+
+  {
+    related.length > 0 && (
+      <section class="wrap section" aria-labelledby="related-writing">
+        <h2 id="related-writing">Related writing</h2>
+        <WritingList posts={related} />
+      </section>
+    )
+  }
+</Base>
+
+<style>
+  .head {
+    padding-top: 44px;
+  }
+
+  h1 {
+    max-width: 900px;
+    font-size: clamp(44px, 30px + 3.1vw, 70px);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    overflow-wrap: break-word;
+  }
+
+  .pitch {
+    max-width: 700px;
+    margin-top: 22px;
+  }
+
+  /* The pitch is MDX, so its paragraphs are not this component's elements. */
+  .pitch :global(p) {
+    margin: 0 0 18px;
+    font-size: 18.5px;
+    line-height: 1.75;
+  }
+
+  .pitch :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  .section {
+    padding-top: 40px;
+  }
+
+  .section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 24px;
+  }
+
+  h2 {
+    margin-bottom: 18px;
+    font-size: 40px;
+    line-height: 1;
+  }
+
+  .section-head > a {
+    color: var(--muted);
+    font: 13px/1.4 var(--font-mono);
+  }
+
+  .section-head > a:hover {
+    color: var(--ink);
+  }
+
+  @media (width <= 640px) {
+    .head {
+      padding-top: 30px;
+    }
+
+    .pitch :global(p) {
+      font-size: 17px;
+    }
+
+    .section {
+      padding-top: 28px;
+    }
+
+    h2 {
+      font-size: 32px;
+    }
+  }
+</style>

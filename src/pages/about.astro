@@ -1,0 +1,316 @@
+---
+// /about/ (spec §5): the bio (the about.mdx body), education, the focus pages, the
+// experience list, contact with the résumé, and a colophon. The header links here from
+// every page, so the page always builds; while about.mdx is a draft, production leaves
+// out the bio and its summary, and keeps the rest.
+import { getCollection, getEntry, render } from 'astro:content';
+import { MDX_COMPONENTS } from '../components/mdx.ts';
+import Relief from '../components/Relief.astro';
+import Base from '../layouts/Base.astro';
+import { loadAllowlist } from '../lib/allowlist.ts';
+import { FOCUS_ORDER } from '../lib/projects.ts';
+import { profile, SITE } from '../lib/site.ts';
+import { isPublished } from '../lib/writing.ts';
+
+const PROD = import.meta.env.PROD;
+const about = await getEntry('pages', 'about');
+if (!about) throw new Error('src/content/pages/about.mdx is missing; /about/ shows its bio');
+const Bio = isPublished(about.data, PROD) ? (await render(about)).Content : undefined;
+
+/** The work groups' focus pages first, in /work/'s order, then any others by id. */
+const rank = (id: string) => {
+  const i = (FOCUS_ORDER as readonly string[]).indexOf(id);
+  return i === -1 ? FOCUS_ORDER.length : i;
+};
+const focusPages = (await getCollection('focus', (entry) => isPublished(entry.data, PROD))).toSorted(
+  (a, b) => rank(a.id) - rank(b.id) || (a.id < b.id ? -1 : 1),
+);
+
+const work = new Map((await getCollection('work')).map((entry) => [entry.id, entry.data]));
+/** In allowlist order, newest first, each with its allowlist line. */
+const experience = loadAllowlist().work.map(({ id, line }) => {
+  const entry = work.get(id);
+  if (!entry) throw new Error(`content/allowlist.yaml: work "${id}" has no export in src/content/work`);
+  return { ...entry, line };
+});
+
+/** The bank writes ranges for LaTeX: `Sep. 2025 -- May 2027` → `Sep. 2025 – May 2027`. */
+const range = (date: string) => date.replaceAll(' -- ', ' – ');
+/** `https://github.com/simon-jd` → `github.com/simon-jd`. */
+const bare = (url: string) => url.replace(/^https?:\/\/(?:www\.)?/, '').replace(/\/$/, '');
+---
+
+<Base
+  title={`${about.data.title} · ${SITE.title}`}
+  description={Bio ? about.data.summary : "Junrui Duan's education, experience and contact details."}
+>
+  <Relief slot="art" variant="corner" />
+
+  <div class="wrap head">
+    <h1>{about.data.title}</h1>
+    {
+      Bio && (
+        <div class="bio">
+          <Bio components={MDX_COMPONENTS} />
+        </div>
+      )
+    }
+  </div>
+
+  <div class="wrap">
+    <section aria-labelledby="education">
+      <h2 id="education">Education</h2>
+      <ol class="rows">
+        {
+          profile.education.map((study) => (
+            <li>
+              <span class="when">{range(study.date)}</span>
+              <div>
+                <h3>{study.degree}</h3>
+                <p class="sub">{study.school}</p>
+              </div>
+            </li>
+          ))
+        }
+      </ol>
+    </section>
+
+    {
+      focusPages.length > 0 && (
+        <section aria-labelledby="focus">
+          <h2 id="focus">Focus</h2>
+          <ul class="focus">
+            {focusPages.map((page) => (
+              <li>
+                <h3>
+                  <a href={`/focus/${page.id}/`}>{page.data.title}</a>
+                </h3>
+                <p class="sub">{page.data.summary}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )
+    }
+
+    <section aria-labelledby="experience">
+      <h2 id="experience">Experience</h2>
+      <ol class="rows">
+        {
+          experience.map((job) => (
+            <li data-work={job.id}>
+              <span class="when">{job.date}</span>
+              <div>
+                <h3 class="org">{job.organization}</h3>
+                <p class="sub role">{job.title}</p>
+                <p class="line">{job.line}</p>
+              </div>
+            </li>
+          ))
+        }
+      </ol>
+    </section>
+
+    <section aria-labelledby="contact">
+      <h2 id="contact">Contact</h2>
+      <ul class="links">
+        <li>
+          <a class="primary" href="/resume.pdf">résumé.pdf{' '}<span aria-hidden="true">↗</span></a>
+        </li>
+        <li><a href={`mailto:${profile.email}`}>{profile.email}</a></li>
+        <li><a href={profile.github}>{bare(profile.github)}</a></li>
+        <li><a href={profile.linkedin}>{bare(profile.linkedin)}</a></li>
+      </ul>
+      <p class="sub">{profile.location}</p>
+    </section>
+
+    <section aria-labelledby="colophon">
+      <h2 id="colophon">Colophon</h2>
+      <p class="colophon">
+        This site is static HTML built with Astro. It ships no client-side framework and works with JavaScript turned
+        off; its own scripts only set the day or night theme. The project facts and numbers are exported from the same
+        records my résumé is built from, and the build fails if a number in the text is not in that export. The
+        botanical relief is a pre-rendered image, the project plates are SVG line drawings, and the GPU timeline on the
+        home page is generated at build time from a fixed seed. Set in Cormorant Garamond, Inter and JetBrains Mono.
+      </p>
+    </section>
+  </div>
+</Base>
+
+<style>
+  .head {
+    padding-top: 44px;
+  }
+
+  h1 {
+    font-size: clamp(48px, 35px + 3vw, 70px);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+  }
+
+  .bio {
+    max-width: 700px;
+    margin-top: 22px;
+  }
+
+  /* The bio is MDX, so its paragraphs are not this component's elements. */
+  .bio :global(p) {
+    margin: 0 0 18px;
+    font-size: 18.5px;
+    line-height: 1.75;
+  }
+
+  .bio :global(p:last-child) {
+    margin-bottom: 0;
+  }
+
+  section {
+    padding-top: 40px;
+  }
+
+  h2 {
+    margin-bottom: 14px;
+    font-size: 40px;
+    line-height: 1;
+  }
+
+  h3 {
+    font-size: 25px;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+  }
+
+  ol,
+  ul {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  /* Date on the left, the entry on the right (mockup lines 98–100); stacked on phones. */
+  .rows li {
+    display: grid;
+    grid-template-columns: 180px minmax(0, 1fr);
+    gap: 4px 16px;
+    align-items: baseline;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .rows li:first-child {
+    border-top: 1px solid var(--line);
+  }
+
+  .when {
+    color: var(--muted);
+    font: 12.5px/1.5 var(--font-mono);
+  }
+
+  .sub {
+    margin-top: 2px;
+    color: var(--muted);
+    font-size: 15px;
+  }
+
+  .line {
+    max-width: 700px;
+    margin-top: 6px;
+  }
+
+  .focus {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+    gap: 14px;
+  }
+
+  .focus li {
+    padding: 14px 16px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+
+  .focus a {
+    text-decoration-color: transparent;
+  }
+
+  .focus a:hover {
+    text-decoration-color: currentColor;
+  }
+
+  .focus .sub {
+    margin-top: 6px;
+  }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px 22px;
+    margin-bottom: 14px;
+    font: 14px/1.4 var(--font-mono);
+  }
+
+  .links a {
+    overflow-wrap: anywhere;
+  }
+
+  .primary {
+    display: inline-block;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--on-accent);
+    text-decoration-line: none;
+  }
+
+  .primary:hover {
+    background: var(--ink);
+    color: var(--bg);
+  }
+
+  .colophon {
+    max-width: 700px;
+    color: var(--muted);
+    font: italic 400 21px/1.5 var(--font-display);
+  }
+
+  @media (width <= 640px) {
+    .head {
+      padding-top: 30px;
+    }
+
+    .bio :global(p) {
+      font-size: 17px;
+    }
+
+    section {
+      padding-top: 28px;
+    }
+
+    h2 {
+      font-size: 32px;
+    }
+
+    .rows li {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .sub {
+      font-size: 16px;
+    }
+
+    .links {
+      column-gap: 18px;
+      font-size: 13px;
+    }
+
+    .colophon {
+      font-size: 19px;
+    }
+  }
+</style>

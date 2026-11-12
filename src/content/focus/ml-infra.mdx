@@ -1,0 +1,10 @@
+---
+title: "ML infrastructure & GPU systems"
+kicker: "focus"
+summary: "GPU kernels, LLM inference and serving, and post-training, in CUDA, Triton, CuTe, MLIR and vLLM."
+projects: [crucible, kvsnap, exactsample, blockfp8, fairsched, reqscope, ragged-mlir, cuda-lifetime]
+tags: [ml-systems, gpu]
+draft: false
+---
+
+I work where models meet GPUs: kernels that turn logits into tokens and FP8 weights into matrix products, serving paths that move KV caches between memory tiers, and training loops that move weights between engines. Most of these projects plug into vLLM. Crucible packs its GRPO weight sync into 64 MiB NCCL broadcasts, cutting it from 2.22 to 0.48 s per step between two A10 nodes; kvsnap restores an 8k-token chat session’s KV cache from host memory in 115 ms instead of recomputing it in 897 ms; exactsample samples 128 requests with Qwen3’s settings in 96 μs while giving each the FP64 reference’s tokens whatever its batch; and blockfp8’s FP8 GEMM made Qwen3-8B-FP8 prefill 1.74× faster than stock vLLM on an RTX 4090.

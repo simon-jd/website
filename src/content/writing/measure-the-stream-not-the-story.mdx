@@ -1,0 +1,47 @@
+---
+title: "Measure the stream, not the story"
+date: 2026-09-06
+type: essay
+tags: [ml-systems, serving, measurement]
+summary: "What a streaming benchmark client has to keep when an LLM response fails halfway, and what it can stop storing."
+project: velaserve
+draft: false
+---
+
+<Sidenote>Every number here comes from one 8-core x86 cloud host with 32 GiB and no GPU. The parser benchmark ran single-goroutine on Go 1.26.6, as six paired processes in AB/BA order with 100 warmups and 1,000 measured iterations per side; the comparison’s figures are the median of the six. The fault tests ran at concurrency 32.</Sidenote>
+
+VelaServe is a gateway for LLM fan-out: one upper-level task issues N related sub-requests in parallel and waits for all of them, so the group’s latency is set mainly by its slowest sub-request. Any claim about that latency rests on the client that measures it. Before that client is fast, it has to say what happened to every sub-request, including the ones that fail.
+
+## A benchmark client is part of the experiment
+
+Over Server-Sent Events, a successful HTTP status is only the start of a response. The client still has to see well-formed event boundaries, valid JSON in each event, the usage report and the DONE event that closes the stream. A connection that drops halfway through has not delivered a response, whatever its status said.
+
+So VelaServe’s measurement client runs the same SSE boundary, JSON and error checks on every stream, and records how each request ended rather than a bare success or failure.
+
+## Keep what was observed when a stream fails
+
+A sub-request can emit its first token and then fail. Dropping its time to first token throws away something that was measured; counting the request as a success invents something that was not. The client keeps both: a failed request keeps its observed first-token time and usage next to its error.
+
+Missing measurements stay missing. A request that never produced a first token has no TTFT, and its record leaves the field absent instead of filling in zero. A zero would enter the statistics as an impossibly fast response from a request that never answered.
+
+To check this, I injected 400 stream faults: truncated UTF-8, an oversized event, a missing DONE and a cancelled read stream, 100 of each. Every one returned its specified error, and no goroutine was left hanging. The parser itself was checked item by item against a handwritten table of expected events: type, content length, position of the first content event, usage and terminal state.
+
+## Store only what the measurement needs
+
+A caller that only measures does not need the response text. VelaServe’s client gives it an explicit no-body-retention mode: the parser reuses a bounded event buffer and runs the same checks, but does not keep the text.
+
+On a fixed workload of 256 synthetic 4,096-byte content events, followed by usage and DONE, that mode cut cumulative parser allocation by 87.1%, from 8,800,000 to 1,135,200 B/op. The full-text control from the same round came in at 8,760,000 B/op. Most of the gain, then, comes from changing what the measurement API promises to keep, not from the parser getting cheaper at the same job.
+
+<BarChart
+  label="Client-side SSE parser allocation: baseline 8,800,000 B/op, full-text control 8,760,000 B/op, no-body-retention mode 1,135,200 B/op."
+  caption="256 × 4,096-byte content events · baseline and no body retention: median of six paired processes · full-text control: same round"
+  rows={[
+    { label: 'baseline', value: 8800000, unit: 'B/op' },
+    { label: 'full-text control', value: 8760000, unit: 'B/op' },
+    { label: 'no body retention', value: 1135200, unit: 'B/op', highlight: true },
+  ]}
+/>
+
+## Contract first, then cost
+
+Decide what a record has to say about a request that fails before deciding how cheap the client can be; a saving can then be judged against that contract. The no-body-retention mode meets it: it stops keeping the response text, yet keeps the full SSE, JSON and error validation and the failure-preserving TTFT and usage records.

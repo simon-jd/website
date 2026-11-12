@@ -1,0 +1,68 @@
+---
+// The article page, for case studies and posts (spec §4, Components; mockup lines
+// 101–112, 337–357): a ruled header over the corner relief, then the head (kicker,
+// title, dek and sprig) and the prose body in one 700px measure. prose.css styles the
+// body and the MDX components inside it.
+import '../styles/prose.css';
+import Relief from '../components/Relief.astro';
+import Sprig from '../components/Sprig.astro';
+import { SITE } from '../lib/site.ts';
+import Base from './Base.astro';
+
+interface Props {
+  title: string;
+  kicker: string;
+  dek: string;
+  /** The page's social card, a path under /og/. */
+  ogImage?: string;
+}
+
+const { title, kicker, dek, ogImage } = Astro.props;
+---
+
+<Base title={`${title} · ${SITE.title}`} description={dek} ogImage={ogImage} ogType="article" ruled>
+  <Relief slot="art" variant="corner" />
+  <article class="article">
+    <header class="head measure">
+      <p class="kicker">{kicker}</p>
+      <h1>{title}</h1>
+      <p class="dek">{dek}</p>
+      <Sprig />
+    </header>
+    <div class="prose measure">
+      <slot />
+    </div>
+  </article>
+</Base>
+
+<style>
+  /* The footer's top margin spaces the end. */
+  .article {
+    padding-top: 40px;
+  }
+
+  h1 {
+    margin-bottom: 14px;
+    /* 44px on a 375px phone up to the mockup's 70px at 1280px. */
+    font-size: clamp(44px, 30px + 3.1vw, 70px);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    overflow-wrap: break-word;
+  }
+
+  .dek {
+    margin: 0;
+    color: var(--muted);
+    font: italic 400 26px/1.4 var(--font-display);
+  }
+
+  @media (width <= 640px) {
+    .article {
+      padding-top: 30px;
+    }
+
+    .dek {
+      font-size: 22px;
+    }
+  }
+</style>

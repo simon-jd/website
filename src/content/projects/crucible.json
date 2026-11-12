@@ -1,0 +1,197 @@
+{
+  "id": "crucible",
+  "title": "Crucible — GPU and ML Infrastructure: Async GRPO Post-Training, LLM Serving Replay and Autoscaling, EAGLE-3 Speculative Decoding, Multi-Node NCCL on Snowflake A10 Nodes",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/Crucible",
+  "workstreams": [
+    {
+      "id": "grpo-post-training",
+      "title": "Async GRPO post-training of Qwen2.5-0.5B on one RTX 4090: vLLM rollout, FSDP2 learner, in-memory weight sync",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/training_systems",
+        "mle"
+      ],
+      "tech_stack": [
+        "PyTorch",
+        "PyTorch FSDP2",
+        "vLLM",
+        "Hugging Face Transformers",
+        "Python",
+        "verl"
+      ],
+      "summary": "GRPO post-training loop for Qwen2.5-0.5B-Instruct on GSM8K math with a 1/0 reward on the last \\boxed{} answer: a vLLM 0.10.2 rollout engine that tags every sample with the policy version that produced it, an FSDP2 learner (FP32 master weights, BF16 compute, a frozen BF16 reference model, group-normalized advantages, clipping, KL penalty and a staleness check on every sample) and a versioned learner-to-rollout weight sync that copies every policy weight as BF16 into vLLM in GPU memory each step, without touching disk. Measured on one RTX 4090 (24 GB) in a shared workstation, where rollout and learning take turns on the card, so async (k=1) changes only how stale the training data is; step times match the sync runs. Evaluation is pass@1 with 4 samples per problem and fixed per-problem seeds, identical before and after training; SE is over per-problem paired differences.",
+      "bullets": [
+        "Raised held-out pass@1 of Qwen2.5-0.5B-Instruct with async (k=1) GRPO on 6,400 completions (100 steps × 8 GSM8K training prompts × 8 samples) on one RTX 4090: GSM8K 0.4503 → 0.4874 (+3.71 ± 0.67 pp, 5.51 SE) on all 1,319 test problems and MATH-500 0.2467 → 0.2832 (+3.65 ± 0.98 pp, 3.72 SE) on the 377 problems the verifier can grade, pooled over seeds 17/18/19; both clear a 2 SE bar fixed before the runs, and every seed improves.",
+        "Found a reward hack in earlier one-seed runs: the sync run learned to write the boxed answer and keep generating, so after training 703 of 800 GSM8K eval completions hit the 512-token limit and 685 of those already contained a boxed answer; scoring a completion that hits the token limit without EOS as 0 left sync runs with 1–9 truncated completions.",
+        "Broke down the cost per step over three group-8 runs: median step 5.47–5.59 s, of which rollout 1.76–1.82 s, learner 2.62–2.66 s and weight sync 0.018 s; GPU-idle share 0.19 (time outside those three, mostly CPU math grading), 0 stale samples dropped, peak CUDA allocation 14.8 GB.",
+        "Checked weight sync for correctness: vLLM logits after a sync against a Hugging Face BF16 reference on 6 prompts × 2 weight versions over all 151,936 vocabulary entries, with all 1,823,232 coordinates within an error bound fixed before the run and 0 failures.",
+        "Compared against verl 0.9.1 with the same model, the same 800 prompts in the same order, the same reward and hyperparameters (sync, seed 17, one seed per framework, 200 GSM8K and 100 MATH-500 problems): GSM8K 0.4475 vs 0.44 (−0.75 ± 2.41 pp), MATH-500 0.295 vs 0.34 (verl +4.5 ± 2.47 pp, 1.8 SE), and 11.07 vs 4.51 samples/s, verl 2.45× slower per sample, mostly from its fp32 reference forward, padded attention without remove-padding and a second process."
+      ]
+    },
+    {
+      "id": "separate-gpu-grpo",
+      "title": "The GRPO loop on separate A10 GPUs on Snowflake: one node without NVLink, and two nodes over TCP",
+      "period": "Nov 2026",
+      "tracks": [
+        "ml_infra/training_systems",
+        "ml_infra/comm_networking"
+      ],
+      "tech_stack": [
+        "PyTorch",
+        "PyTorch FSDP2",
+        "vLLM",
+        "NCCL",
+        "Python",
+        "Snowflake ML Jobs"
+      ],
+      "summary": "The same GRPO setup (Qwen2.5-0.5B-Instruct, 6,400 completions per run, seeds 17/18/19) run as Snowflake ML Jobs on a trial account in three layouts: (a) the unchanged time-shared loop on one A10; (b) learner on GPU0 and vLLM rollout on GPU1 of one Snowflake GPU_NV_2M node (2× A10 24 GB vGPU in one node, no NVLink/P2P); (c) the same across 2 Snowflake GPU_NV_SM nodes (1× A10 24 GB each) over TCP. The learner broadcasts BF16 weights over NCCL to vLLM every step, first one tensor at a time, then, across the two nodes, packed into 64 MiB buckets checked by a SHA-256 manifest (one run, seed 17). vLLM 0.10.2, torch 2.8.0 (NCCL 2.27.3), transformers 4.55.4. The A10 numbers compare with each other, not with the 4090 runs.",
+      "bullets": [
+        "Overlapped rollout and learning by putting the FSDP2 learner and the vLLM rollout engine on separate A10 GPUs of one Snowflake GPU_NV_2M node (no NVLink/P2P) and syncing BF16 weights over NCCL every step: GRPO training time fell from 1,207 s for the time-shared loop on one A10 to 741 s (1.63× faster), with the learner GPU idle 1% of the time and every batch one version old, 0 dropped (seeds 17/18/19).",
+        "Ran the same loop across 2 Snowflake GPU_NV_SM nodes over TCP: 933 s (1.29× faster than the time-shared loop) with 4 threads × 4 NCCL sockets, and 860 s (1.40×) when rerun with the 8 threads × 8 sockets, 4-channel settings from the network baseline, which cut weight sync from 2.9 s to 2.0 s per step.",
+        "Traced the remaining two-node sync time to the per-tensor sync protocol, which issued 1,478 collectives one after another for the 290 tensors of one 988 MB push, and replaced it with 15 NCCL broadcasts of 64 MiB buckets checked by a SHA-256 manifest over 16 MiB chunks (25 collectives per push): one push fell from 2.02 to 0.45 s between 2 Snowflake GPU_NV_SM nodes, against 0.38 s for raw broadcasts of the same bytes (3 timed passes).",
+        "Reran two-node GRPO with the bucketed sync (one run, seed 17): weight sync 2.22 → 0.48 s per step and training 889 → 689 s, 1.75× faster than the time-shared loop on one A10; the weight-sync correctness check passed unchanged, with vLLM logits bit-identical to the per-tensor run, and GSM8K rose +3.13 pp (3.57 SE) while MATH-500's +2.32 pp (1.95 SE) missed the 2 SE bar.",
+        "Kept the accuracy gains across layouts: GSM8K +3.80 / +3.78 / +2.99 pp in (a) / (b) / (c), all above 4 SE; MATH-500 +2.21 pp (2.22 SE) in (b) and +3.12 pp (3.08 SE) in (c), and +1.79 pp (1.76 SE, below the 2 SE bar) in (a); no difference between layouts reaches 2 SE.",
+        "Verified weight sync over NCCL with the correctness check of the 4090 runs: all 1,823,232 vLLM logit coordinates within the pre-fixed error bound in both layouts, 0 failures; one 988 MB weight version took 2.21 s within one node and 5.9 s across two nodes with default socket settings, including a per-tensor SHA-256."
+      ]
+    },
+    {
+      "id": "multinode-nccl-scaling",
+      "title": "NCCL tuning and data-parallel scaling on up to four Snowflake A10 nodes over TCP",
+      "period": "Nov 2026",
+      "tracks": [
+        "ml_infra/comm_networking",
+        "ml_infra/training_systems",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "NCCL",
+        "PyTorch",
+        "PyTorch DDP",
+        "CUDA",
+        "Python",
+        "Snowflake ML Jobs"
+      ],
+      "summary": "Network and collective baseline and multi-node scaling on a Snowflake trial account: 2× A10 24 GB (vGPU) in one GPU_NV_2M node without NVLink/P2P, and 2 to 4 Snowflake GPU_NV_SM nodes (1× A10 24 GB each) over TCP. The nodes have no InfiniBand device, so NCCL uses TCP sockets. 1 GiB all-reduce and broadcast with default and tuned NCCL settings plus raw TCP streams, 3 passes each; data-parallel (DDP) training of Qwen2.5-0.5B with fp32 gradients on 1 / 2 / 4 nodes, weak and strong scaling, 3 rounds. The project's TorchTitan configurations for a four-node H100 cluster have not run: TorchTitan's pinned nightly stack could not be installed on these nodes.",
+      "bullets": [
+        "Raised NCCL bandwidth between 2 Snowflake A10 nodes over TCP from 0.19 to 1.26 GB/s for a 1 GiB all-reduce and from 0.27 to 2.6 GB/s for broadcast with 8 threads × 8 sockets and at least 4 channels, after raw TCP tests showed one stream carries about 0.19 GB/s, so the defaults were the limit, not the link (3 passes each).",
+        "Measured 2× A10 in one Snowflake GPU_NV_2M node without NVLink or peer access: NCCL all-reduce 2.5 → 9.9 GB/s and broadcast 2.0 → 18.6 GB/s for 1 GiB with NCCL_SHM_USE_CUDA_MEMCPY=1.",
+        "Extended the collectives to 4 Snowflake A10 nodes over TCP: 1 GiB all-reduce at 1.29 / 1.03 / 0.83 GB/s on 2 / 3 / 4 nodes with the tuned settings, against about 0.2 GB/s by default.",
+        "Measured DDP scaling of Qwen2.5-0.5B with fp32 gradients on 1 / 2 / 4 Snowflake A10 nodes over TCP (3 rounds): weak-scaling efficiency 0.54 on 2 nodes and 0.36 on 4, strong scaling (global batch of 16 sequences) 0.38 and 0.12, because the 1.98 GB gradient all-reduce takes 2.0 s on 2 nodes and 4.2 s on 4 against 2.0 s of compute per step."
+      ]
+    },
+    {
+      "id": "cluster-health-drain",
+      "title": "Straggler drain and checkpoint-restart goodput run once on four Snowflake A10 nodes; bring-up checks for an H100 cluster tested offline",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/gpu_cluster",
+        "sre"
+      ],
+      "tech_stack": [
+        "Python",
+        "PyTorch",
+        "PyTorch DDP",
+        "NCCL",
+        "Snowflake ML Jobs"
+      ],
+      "summary": "Cluster bring-up tooling written for a four-node H100 cluster with InfiniBand and eight GPUs per node: Slurm and Kubernetes provisioning checks, a burn-in plan with DCGM level-3 diagnostics, perftest HCA bandwidth tests and NCCL collective tests, a drain controller, and fault plans with goodput computed from checkpoint lineage. All of it is tested with CPU unit tests, command shims and synthetic fixtures. Only the drain controller's straggler logic and the checkpoint-restart goodput accounting ran on hardware, once, on four Snowflake GPU_NV_SM nodes (1× A10 24 GB each) over TCP. There are no InfiniBand/HCA tests, DCGM burn-in, Slurm or Kubernetes drain actions, or node, power or network faults.",
+      "bullets": [
+        "Wrote a drain controller that turns an XID error or NIC link-down into a drain or requeue intent and flags a straggler whose step time stays above 1.2× the median of healthy nodes for 3 consecutive samples; on 4 Snowflake A10 nodes with one node slowed by a competing CUDA process (dry-run mode), the node-local step time flagged only that node, once, at its third slow sample.",
+        "Showed that a step-time hook on the synchronized training step cannot find a straggler inside one synchronous data-parallel job: the slowed node raised every node's step time equally (4.7 → 6.1 s), so no node exceeded 1.2× the median and none was flagged.",
+        "Measured checkpoint-restart goodput on 4 Snowflake A10 nodes: after a SIGKILL of one rank's process after step 25 and a restart of all ranks from the step-20 checkpoint (3 rounds), goodput was 0.430 (0.422–0.445) with checkpoints on disk, where each 6.48 GB save took 39–49 s, and 0.673 with /dev/shm; every round lost 5 steps, and the first replayed step reproduced the loss.",
+        "Wrote bring-up checks for a four-node H100 cluster with eight GPUs per node: a Slurm profile that requires 32 unique GPU UUIDs from srun and a Kubernetes profile that requires 32 one-GPU pods admitted by Kueue plus a shared NFS volume, with a burn-in plan of DCGM level-3 diagnostics, perftest and NCCL tests; tested only with CPU unit tests, command shims and synthetic fixtures."
+      ]
+    },
+    {
+      "id": "trace-replay-serving",
+      "title": "Open-loop trace replay, router fault handling and autoscaling for vLLM on one RTX 4090, and autoscaling onto a second A10",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/inference_serving",
+        "ml_infra/perf_analysis",
+        "sre"
+      ],
+      "tech_stack": [
+        "Go",
+        "vLLM",
+        "Python",
+        "Snowflake ML Jobs"
+      ],
+      "summary": "Serving tools in Go and Python: an open-loop replayer that sends requests at a trace's arrival times, records planned and actual send times, voids a trial when more than 1% of requests go out more than 5 ms late, and accounts every request as completed, failed or retried; vLLM drivers with SLO and goodput calculation; a router (least-queue routing over fresh backend snapshots), an autoscaler (queue length and p95 TTFT thresholds with cooldowns) and a local actuator that starts and stops vLLM replicas. Measured with vLLM 0.10.2 on one RTX 4090 (24 GB) in a shared workstation, and the autoscaling setup again on a Snowflake GPU_NV_2M node (2× A10 24 GB vGPU, no NVLink/P2P). SLOs are p99 TTFT and TPOT from calibration runs; workloads are deterministic, so run-to-run ranges show system noise. The Kubernetes deployment of the router and autoscaler was not exercised (kube-proxy crash-looped in kind).",
+      "bullets": [
+        "Wrote a Go open-loop replayer that sends requests at the trace's arrival times and voids a trial when more than 1% of requests go out more than 5 ms late; replaying Azure LLM inference 2023 conv (265 requests) and BurstGPT (123) against vLLM 0.10.2 with Qwen3-8B-AWQ on one RTX 4090, 3 rounds per level, Azure goodput was 1.089 / 2.041 / 0.104 req/s at 1x / 2x / 4x and BurstGPT stayed inside its SLO up to 4x (1.502 req/s), with no timeouts and no voided trial.",
+        "Cut failed requests per replica kill (2 replicas, 260 requests at 3 req/s, SIGKILL of one replica at 30 s, 3 trials per condition) from 32–34 with the original router, which kept routing to the dead replica until its snapshot expired, to 0–1 by ejecting a backend on its first transport error and retrying failed connects, and to 0 failed and 1 retried (then completed) with a client resend of cut streams; every request was accounted for in every trial.",
+        "Compared BF16 with vLLM's online FP8 on the same Qwen3-8B checkpoint (eager mode, Azure window at 0.25× the trace's rate, order AB, BA, AB): p50 TPOT 24.6 → 15.5 ms (−37%), p50 TTFT 128 → 89 ms and KV cache 22,192 → 68,016 tokens, but throughput only +1.4% and goodput +2.2% because BF16 already met the SLO; GSM8K 0.920 → 0.910 and MMLU-Pro 0.377 → 0.380, both within one SE.",
+        "Ran the router and autoscaler with up to two vLLM replicas of Qwen2.5-0.5B on the same RTX 4090 (a 120 s burst at 4x load, 3 trials): the new replica served its first request a median 35.5 s after the burst began, but burst goodput fell from 4.00 req/s with one fixed replica to 0.675 req/s, because two processes on one GPU slow every decode step (p50 TPOT 3.7 → 5.6 ms).",
+        "Moved the new replica onto the second A10 of a Snowflake GPU_NV_2M node (SLO re-derived on the A10: TTFT ≤ 85.7 ms, TPOT ≤ 9.37 ms): burst goodput 0.042 / 0.308 (0.025–0.433 across trials) / 0.525 req/s and failed requests 210–213 / 29–40 / 0 of 1,123 for fixed 1 replica / autoscaling 1 → 2 / fixed 2 replicas; the second replica no longer slowed the first (burst p50 TPOT 9.45 / 9.45 / 9.50 ms) and served its first request a median 38.5 s after the burst began."
+      ]
+    },
+    {
+      "id": "pd-disaggregation",
+      "title": "Prefill/decode disaggregation 1P:1D with vLLM's NCCL KV connector on Snowflake A10 GPUs",
+      "period": "Nov 2026",
+      "tracks": [
+        "ml_infra/inference_serving",
+        "ml_infra/inference_engine"
+      ],
+      "tech_stack": [
+        "vLLM",
+        "NCCL",
+        "Python",
+        "Go",
+        "Snowflake ML Jobs"
+      ],
+      "summary": "Qwen3-8B-AWQ served with vLLM 0.10.2 and its NCCL KV connector (P2pNcclConnector) on a Snowflake trial account, replayed with the project's open-loop replayer (Azure conv, 3 rounds per level) in four layouts: one A10; two data-parallel replicas in one node; 1P:1D in one Snowflake GPU_NV_2M node (2× A10 24 GB vGPU, no NVLink/P2P; KV over NCCL SHM); 1P:1D across 2 Snowflake GPU_NV_SM nodes (KV over TCP). SLO re-derived on one A10: TTFT ≤ 2,110.7 ms, TPOT ≤ 90.27 ms. The one-A10 and two-node layouts ran on GPU_NV_SM nodes and the others on GPU_NV_2M. The project's SGLang P/D manifests (1P:1D, 2P:1D and cross-node with KV over RDMA) were never run, and 2P:1D was not measured.",
+      "bullets": [
+        "Measured 1P:1D prefill/decode disaggregation for Qwen3-8B-AWQ with vLLM 0.10.2's NCCL KV connector against one A10 and two data-parallel replicas on Snowflake A10 nodes (Azure conv replay, 3 rounds per level): goodput at 1x / 2x / 4x was 1.09 / 2.09 / 2.52 req/s for two replicas, 1.07 / 2.04 / 0.20 for 1P:1D in one node and 1.04 / 1.50 / 0.06 for 1P:1D across two nodes over TCP.",
+        "Found where P/D wins and where it collapses in one Snowflake GPU_NV_2M node: a lower decode tail at 2x (p99 TPOT 22.8 vs 40.5 ms for two replicas), but at 4x the one prefill GPU waits for every KV send, with median prefill rising from 0.29 s at 1x to 9.1 s; a median prompt carries 151 MB of KV, sent at 2.8 GB/s over SHM and 0.36–0.48 GB/s over TCP.",
+        "Fixed two bugs in vLLM 0.10.2's P2pNcclConnector with a run-time plugin and CPU tests: a TypeError that killed the prefill engine at 4x when a continuing chunked-prefill step allocated no new block, and a buffer count that dropped a received KV tensor when the model loaded it while the GPU copy stayed until the request finished, so kv_buffer_size never bounded GPU memory and the decode GPU ran out of memory at 4x."
+      ]
+    },
+    {
+      "id": "eagle3-speculative-decoding",
+      "title": "EAGLE-3 draft training with SpecForge and serving with SGLang on one RTX 4090, Qwen3-4B target",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/inference_engine",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "SGLang",
+        "SpecForge",
+        "PyTorch",
+        "Python"
+      ],
+      "summary": "EAGLE-3 pipeline on SpecForge and SGLang for a Qwen3-4B target on one RTX 4090 (24 GB): the target regenerates its own answers to the training prompts, hidden-state features are captured and trained on offline in batches and deleted after each batch, and the draft is exported to SGLang. The draft uses SpecForge's standard Qwen3-4B EAGLE-3 config, trained for 60,480 steps on 60,697 UltraChat conversations that Qwen3-4B regenerated itself (greedy, thinking off). The benchmark serves the target with SGLang 0.5.18 and sends 128 held-out UltraChat prompts (disjoint from the training data), greedy, at most 256 new tokens, closed loop at 1/4/16/64 requests in flight, 3 draft steps, top-k 1, 4 draft tokens; two rounds, a server restart before every run, all 3,072 requests completed. The public draft AngelSlim/Qwen3-4B_eagle3 ran on the same harness.",
+      "bullets": [
+        "Trained an EAGLE-3 draft for Qwen3-4B with SpecForge on 60,697 UltraChat conversations that the target regenerated itself (5.50 GPU-hours for feature capture and training on one RTX 4090) and served it with SGLang 0.5.18: median TPOT 9.31 → 5.66 ms at batch 1, a 1.646× / 1.649× speedup over two rounds with acceptance length 2.159, falling to 1.157× / 1.133× at batch 64 (128 held-out prompts, greedy, 256 new tokens).",
+        "Benchmarked the public AngelSlim/Qwen3-4B_eagle3 draft on the same harness: 1.629× / 1.633× TPOT speedup at batch 1 with acceptance 2.107 / 2.110, within 1–3% of the trained draft, whose held-out prompts come from the same family as its training data.",
+        "Kept training inside the disk budget: EAGLE-3 hidden-state features take about 17.6 MB per conversation (about 1.08 TB for the full data set), so the pipeline captures, trains on and deletes them in batches of 576 conversations, with peak project disk of 39.2 GB.",
+        "Showed that draft size and data decide the gain: an earlier draft with a reduced vocabulary and MLP, trained on only 240 conversations, reached an acceptance length of 1.42 and made batch 64 slower than no speculation (TPOT speedup 0.772 / 0.803).",
+        "Measured three more configurations declared before running, at batch 1 and 64: tree drafting (top-k 4, 8 draft tokens) was fastest at batch 1 (1.882 / 1.900×, acceptance 2.595 / 2.588), a 2-step chain was fastest at batch 64 (1.286 / 1.295×), and the 5-step chain and the tree were slower than no speculation at batch 64, so no single configuration wins at both."
+      ]
+    },
+    {
+      "id": "fused-logprob-op",
+      "title": "Fused token log-probability custom op in Triton, registered through torch.library",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/gpu_kernels",
+        "ml_infra/training_systems"
+      ],
+      "tech_stack": [
+        "Triton",
+        "PyTorch",
+        "torch.compile",
+        "CUDA",
+        "Python"
+      ],
+      "summary": "torch.ops.crucible.token_logprobs(logits, targets): a PyTorch custom op registered through torch.library (custom op, fake tensor and autograd registrations) that works under torch.compile(fullgraph=True). The CUDA path is a Triton kernel over 1,024-wide vocabulary tiles that never materializes the softmax; backward writes only the required dense logits gradient. The GRPO learner uses it to score both the policy and the reference model. Measured on one RTX 4090. It supports first-order autograd and FP32/BF16 (plus FP64 on CPU), not FP16.",
+      "bullets": [
+        "Wrote a token log-probability custom op as a Triton kernel over 1,024-wide vocabulary tiles that never materializes the softmax, registered through torch.library with fake-tensor and autograd registrations so it runs under torch.compile(fullgraph=True); on FP32 logits [2, 32, 152000], forward plus backward, incremental peak memory fell from 119,538,688 to 39,847,936 bytes (−66.67%), including the required dense gradient.",
+        "Measured the op inside one full FSDP2 GRPO learner step on Qwen2.5-0.5B (3 alternating baseline/candidate pairs on one RTX 4090): peak allocation unchanged (median 10,020,235,776 bytes for both) and median step 234.800 vs 228.713 ms with overlapping ranges, so no speedup is shown; correctness is covered by 51 CPU tests (FP64 gradcheck, torch.compile fullgraph, opcheck) and 16 CUDA tests."
+      ]
+    }
+  ]
+}

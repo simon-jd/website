@@ -1,0 +1,125 @@
+---
+// The facts box at the top of a case study (spec §5, /work/<id>): an optional lead line,
+// then the period, the stack, the repo link and the key results, from the bank export and
+// the allowlist, whose numbers check:content has already tied to the bank.
+import type { ProjectView } from '../lib/projects.ts';
+
+interface Props {
+  project: ProjectView;
+  /** A line above the facts: the one-liner, when the page's dek is something else. */
+  lead?: string;
+}
+
+const { project, lead } = Astro.props;
+const { period, stack, repo, keyResults } = project;
+/** `github.com/simon-jd/Crucible`. */
+const repoLabel = repo.replace(/^https:\/\//, '');
+---
+
+<aside class="facts" aria-label="Project facts">
+  {lead && <p class="lead">{lead}</p>}
+  <dl>
+    <dt>period</dt>
+    <dd>{period}</dd>
+    <dt>stack</dt>
+    <dd class="mono">{stack.join(' · ')}</dd>
+    <dt>code</dt>
+    <dd class="mono">
+      <a href={repo}>{repoLabel}{' '}<span aria-hidden="true">↗</span></a>
+    </dd>
+    {
+      keyResults.length > 0 && (
+        <>
+          <dt>results</dt>
+          <dd>
+            <ul class="results">
+              {keyResults.map((result) => (
+                <li>{result.text}</li>
+              ))}
+            </ul>
+          </dd>
+        </>
+      )
+    }
+  </dl>
+</aside>
+
+<style>
+  .facts {
+    padding: 18px 20px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+
+  .lead {
+    margin: 0 0 14px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--line);
+    font: italic 400 19px/1.4 var(--font-display);
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 12px 18px;
+    margin: 0;
+  }
+
+  dt {
+    color: var(--muted);
+    font: 12.5px/1.7 var(--font-mono);
+  }
+
+  dd {
+    margin: 0;
+    font-size: 15px;
+    line-height: 1.55;
+  }
+
+  .mono {
+    font: 13px/1.65 var(--font-mono);
+    overflow-wrap: anywhere;
+  }
+
+  .results {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .results li {
+    position: relative;
+    padding-left: 16px;
+  }
+
+  .results li + li {
+    margin-top: 10px;
+  }
+
+  /* An accent tick in place of a bullet. */
+  .results li::before {
+    content: '';
+    position: absolute;
+    top: 0.75em;
+    left: 0;
+    width: 8px;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  @media (width <= 640px) {
+    dl {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 2px;
+    }
+
+    dd + dt {
+      margin-top: 10px;
+    }
+
+    dd {
+      font-size: 16px;
+    }
+  }
+</style>

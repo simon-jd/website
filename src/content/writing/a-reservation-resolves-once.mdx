@@ -1,0 +1,48 @@
+---
+title: "A reservation resolves once"
+date: 2026-09-06
+type: note
+tags: [distributed-systems, infra, correctness]
+summary: "Why Quorum Market keeps its stock out of the quorum, and how every reservation ends exactly once."
+project: quorum-market
+draft: false
+---
+
+<Sidenote>Quorum Market runs on a single cloud Linux host with 8 cores and 16 GiB, RabbitMQ 4.1, Redis 7.2 and 20 ms of injected network latency: 8 application services and three in-memory KV clusters of 13 nodes in total. The checkout numbers come from simulated storms and lab tests on that host.</Sidenote>
+
+Quorum Market is a Go e-commerce backend whose state lives in three in-memory KV clusters, replicated with quorum reads and writes: product N=5 (W=5, R=1), cart N=5 (W=3, R=3) and core N=3 (W=2, R=2). When a quorum is out of reach, the cluster says so. In an 18-case fault matrix, all 9 cases without a reachable quorum returned an explicit 503, and every case either succeeded or returned 503.
+
+## Quorums replicate; they do not compare-and-swap
+
+Overlapping read and write quorums (R+W>N) give replication, not linearizability and not compare-and-swap. Two checkouts can both read that one unit is left, and both write that none is. Stock integrity therefore does not come from the quorum. It comes from a single owner: a warehouse process where, inside a per-SKU mutex, one critical section compares the version, checks availability, decrements the stock and increments the version. That critical section is the oversell guard.
+
+The storm test aims straight at it: 100 concurrent clients sending 10 requests each, 1,000 distinct request IDs, all for one SKU stocked with 100 units.
+
+<Stats
+  items={[
+    { value: '100', label: 'reservations from 1,000 requests' },
+    { value: '900', label: 'sold out, stock at 0' },
+    { value: '100', label: 'receipts after 3 replays' },
+  ]}
+  caption="One SKU with 100 units · 100 clients × 10 requests · simulated storm"
+/>
+
+Exactly 100 reservations succeeded and 900 were sold out, and the stock reached 0 without going negative. Replaying each successful request 3 times still produced only 100 receipts and 100 decrements.
+
+## Two endings, each once
+
+A reservation has a strict lifecycle with two endings: reserved, then committed, or reserved, then released. After a payment failure, compensation releases only the reservations that actually succeeded, so a failed payment cannot hand back stock that was never taken.
+
+```text
+reserve   compare version, check, decrement, bump version
+commit    reserved → committed
+release   reserved → released, stock returned once
+```
+
+The lab test cancels concurrently on purpose. 20 unpaid reservations were each cancelled 5 times at once; each was released exactly once, leaving stock at 20, while the other 80 committed. The ledger closes: 100 = 80 sold + 20 available.
+
+## What the invariant leaves visible
+
+One owner and one critical section settle oversell, and a lifecycle with two endings settles double release. What remains is the step between services. When the checkout coordinator was killed after the order reached the core quorum but before the RabbitMQ publish, 10 trials produced 10 readable orders and 0 messages. The commit is an in-memory replica acknowledgement, and there is no outbox to carry the message across the crash; in-process inventory and receipts are lost on restart as well.
+
+That is the value of a precise local invariant. It does not make checkout safe across services, but it turns the remaining failure from a vague inconsistency into one named gap: an order committed without its message.

@@ -1,0 +1,72 @@
+---
+// Post rows (mockup lines 98–102, 274–278): the month, the title and `type · tags`.
+// The rows stack on phones. Callers pass the posts already filtered and in order.
+import type { CollectionEntry } from 'astro:content';
+import { isoDate, monthLabel } from '../lib/site.ts';
+
+interface Props {
+  posts: CollectionEntry<'writing'>[];
+}
+
+const { posts } = Astro.props;
+---
+
+<ol class="writing-list">
+  {
+    posts.map(({ id, data }) => (
+      <li>
+        <time datetime={isoDate(data.date)}>{monthLabel(data.date)}</time>
+        <a href={`/writing/${id}/`}>{data.title}</a>
+        <span class="meta">{[data.type, ...data.tags].join(' · ')}</span>
+      </li>
+    ))
+  }
+</ol>
+
+<style>
+  ol {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  li {
+    display: grid;
+    grid-template-columns: 120px minmax(0, 1fr) minmax(0, 220px);
+    gap: 4px 16px;
+    align-items: baseline;
+    padding: 15px 0;
+    border-bottom: 1px solid var(--line);
+  }
+
+  time,
+  .meta {
+    color: var(--muted);
+    font: 12.5px/1.5 var(--font-mono);
+  }
+
+  .meta {
+    text-align: right;
+    overflow-wrap: anywhere;
+  }
+
+  a {
+    font: 500 25px/1.2 var(--font-display);
+    text-decoration-color: transparent;
+    overflow-wrap: anywhere;
+  }
+
+  a:hover {
+    text-decoration-color: currentColor;
+  }
+
+  @media (width <= 640px) {
+    li {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .meta {
+      text-align: left;
+    }
+  }
+</style>

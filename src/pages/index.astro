@@ -1,0 +1,229 @@
+---
+// The home page (spec §5; mockup lines 175–284, phones 286–335): the hero, the GPU
+// timeline, the key numbers, the four featured projects, the latest posts and a
+// one-line about. Every number comes from the allowlist and the bank exports.
+import { getEntry } from 'astro:content';
+import ProjectGrid from '../components/ProjectGrid.astro';
+import Relief from '../components/Relief.astro';
+import Stats from '../components/Stats.astro';
+import Timeline from '../components/Timeline.astro';
+import WritingList from '../components/WritingList.astro';
+import Base from '../layouts/Base.astro';
+import { loadAllowlist } from '../lib/allowlist.ts';
+import { publishedPosts } from '../lib/posts.ts';
+import { getProjects } from '../lib/projects.ts';
+import { profile, SITE } from '../lib/site.ts';
+import { isPublished, latest } from '../lib/writing.ts';
+
+const PROD = import.meta.env.PROD;
+const projects = await getProjects();
+const featured = projects.filter((p) => p.featured).toSorted((a, b) => (a.plate ?? 0) - (b.plate ?? 0));
+const { stats } = loadAllowlist().home;
+const posts = latest(await publishedPosts(), 5);
+const about = await getEntry('pages', 'about');
+if (!about) throw new Error('src/content/pages/about.mdx is missing; the home page shows its summary');
+// A draft About page keeps its bio out of production, and its line is left out here too.
+const aboutSummary = isPublished(about.data, PROD) ? about.data.summary : undefined;
+---
+
+<Base title={SITE.title}>
+  <Relief slot="art" variant="hero" />
+
+  <section class="hero wrap">
+    <p class="kicker">ml infrastructure / gpu systems</p>
+    <h1>Junrui Duan{' '}<span class="rest">builds the systems under machine learning<span class="clause">: kernels, serving, training loops</span>.</span></h1>
+    <div class="links">
+      <ul>
+        <li><a class="primary" href="/resume.pdf">résumé.pdf{' '}<span aria-hidden="true">↗</span></a></li>
+        <li><a href={profile.github}>github</a></li>
+        <li><a href={profile.linkedin}>linkedin</a></li>
+        <li><a href={`mailto:${profile.email}`}>email</a></li>
+      </ul>
+      <p class="status">MS CS, Northeastern · open to new-grad roles</p>
+    </div>
+    <Timeline />
+    <Stats items={stats.items} caption={stats.caption} />
+  </section>
+
+  <section class="section wrap" aria-labelledby="selected-work">
+    <div class="section-head">
+      <h2 id="selected-work">Selected work</h2>
+      <a href="/work/">all {projects.length} projects{' '}<span aria-hidden="true">→</span></a>
+    </div>
+    <ProjectGrid projects={featured} />
+  </section>
+
+  {
+    posts.length > 0 && (
+      <section class="section wrap" aria-labelledby="writing">
+        <div class="section-head">
+          <h2 id="writing">Writing</h2>
+          <p class="more">
+            <a href="/writing/">
+              all writing{' '}<span aria-hidden="true">→</span>
+            </a>
+            {' · '}
+            <a href="/rss.xml">rss</a>
+          </p>
+        </div>
+        <WritingList posts={posts} />
+      </section>
+    )
+  }
+
+  {
+    aboutSummary && (
+      <div class="section wrap about">
+        <p class="summary">{aboutSummary}</p>
+        <p class="more">
+          <a href="/about/">
+            more about me{' '}<span aria-hidden="true">→</span>
+          </a>
+        </p>
+      </div>
+    )
+  }
+</Base>
+
+<style>
+  .hero {
+    padding-top: 44px;
+  }
+
+  h1 {
+    max-width: 830px;
+    /* 43px on a 375px phone up to the mockup's 76px at 1280px. */
+    font-size: clamp(43px, 29.3px + 3.65vw, 76px);
+    line-height: 1.03;
+    letter-spacing: -0.015em;
+  }
+
+  /* The mockup sets this in weight 400, but only the 500 roman face ships, so it differs by color alone. */
+  .rest {
+    color: var(--muted);
+  }
+
+  .links {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px 22px;
+    margin: 30px 0 34px;
+    font: 14px/1.4 var(--font-mono);
+  }
+
+  ul {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 12px 22px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .primary {
+    display: inline-block;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--accent);
+    color: var(--on-accent);
+    text-decoration-line: none;
+  }
+
+  .primary:hover {
+    background: var(--ink);
+    color: var(--bg);
+  }
+
+  .status {
+    margin: 0 0 0 auto;
+    color: var(--muted);
+  }
+
+  .section {
+    padding-top: 40px;
+  }
+
+  .section-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 8px 24px;
+    margin-bottom: 18px;
+  }
+
+  h2 {
+    font-size: 40px;
+    line-height: 1;
+  }
+
+  .section-head > a,
+  .more {
+    margin: 0;
+    color: var(--muted);
+    font: 13px/1.4 var(--font-mono);
+  }
+
+  .section-head a:hover,
+  .more a:hover {
+    color: var(--ink);
+  }
+
+  .about .summary {
+    max-width: 760px;
+    margin: 0 0 10px;
+    font: italic 400 24px/1.4 var(--font-display);
+  }
+
+  /* Below this the status no longer fits beside the links, so it takes its own line. */
+  @media (width <= 900px) {
+    .status {
+      flex-basis: 100%;
+      margin-left: 0;
+    }
+  }
+
+  @media (width <= 640px) {
+    .hero {
+      padding-top: 30px;
+    }
+
+    h1 {
+      line-height: 1.05;
+    }
+
+    .links,
+    ul {
+      column-gap: 18px;
+    }
+
+    .links {
+      margin: 22px 0;
+      font-size: 13px;
+    }
+
+    .status {
+      font-size: 12px;
+    }
+
+    .section {
+      padding-top: 28px;
+    }
+
+    h2 {
+      font-size: 32px;
+    }
+
+    .about .summary {
+      font-size: 21px;
+    }
+  }
+
+  @media (width < 640px) {
+    .clause {
+      display: none;
+    }
+  }
+</style>

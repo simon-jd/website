@@ -1,0 +1,92 @@
+---
+// A case study, /work/<id>/ (spec §5): the head, the facts box and the plate, then the
+// MDX narrative and the posts that name the project. Every fact outside the MDX body
+// comes from the allowlist and the bank export.
+import { getCollection, render, type CollectionEntry } from 'astro:content';
+import FactsBox from '../../components/FactsBox.astro';
+import { MDX_COMPONENTS } from '../../components/mdx.ts';
+import Plate from '../../components/Plate.astro';
+import WritingList from '../../components/WritingList.astro';
+import Article from '../../layouts/Article.astro';
+import { publishedPosts } from '../../lib/posts.ts';
+import { FOCUS_LABEL, getProjects, type ProjectView } from '../../lib/projects.ts';
+import { isPublished } from '../../lib/writing.ts';
+
+interface Props {
+  entry: CollectionEntry<'caseStudies'>;
+  project: ProjectView;
+}
+
+/** One page per published case study. Throws for any case-study file, draft or not, whose id is not allowlisted. */
+export async function getStaticPaths() {
+  const [entries, projects] = await Promise.all([getCollection('caseStudies'), getProjects()]);
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  return entries.flatMap((entry) => {
+    const project = byId.get(entry.id);
+    if (!project)
+      throw new Error(
+        `src/content/case-studies/${entry.id}.mdx: "${entry.id}" is not in content/allowlist.yaml, so the case study has no facts to show`,
+      );
+    return isPublished(entry.data, import.meta.env.PROD) ? [{ params: { id: entry.id }, props: { entry, project } }] : [];
+  });
+}
+
+const { entry, project } = Astro.props;
+const { Content } = await render(entry);
+const related = (await publishedPosts()).filter((post) => post.data.project === project.id);
+// The spec puts the one-liner on every case study: as the dek when the frontmatter has
+// none, otherwise as the facts box's lead line.
+const dek = entry.data.dek ?? project.oneLiner;
+const plate =
+  project.plate !== undefined && project.plateCaption !== undefined
+    ? { numeral: project.plate, caption: project.plateCaption }
+    : undefined;
+---
+
+<Article
+  title={project.name}
+  kicker={`case study · ${FOCUS_LABEL[project.focus]}`}
+  dek={dek}
+  ogImage={`/og/work/${project.id}.png`}
+>
+  <div class:list={['facts-row', { wide: plate !== undefined }]}>
+    <FactsBox project={project} lead={dek === project.oneLiner ? undefined : project.oneLiner} />
+    {plate && <Plate id={project.id} numeral={plate.numeral} caption={plate.caption} size="large" />}
+  </div>
+  <Content components={MDX_COMPONENTS} />
+  {
+    related.length > 0 && (
+      <section class="related" aria-labelledby="related-writing">
+        <h2 id="related-writing">Related writing</h2>
+        <WritingList posts={related} />
+      </section>
+    )
+  }
+</Article>
+
+<style>
+  /* The facts and the plate side by side when the row spans the margin column too, one
+     above the other otherwise. */
+  .facts-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 420px), 1fr));
+    gap: 24px 30px;
+    align-items: start;
+    margin-bottom: 40px;
+  }
+
+  .related {
+    margin-top: 44px;
+  }
+
+  h2 {
+    margin-bottom: 12px;
+    font-size: 36px;
+  }
+
+  @media (width <= 640px) {
+    h2 {
+      font-size: 30px;
+    }
+  }
+</style>

@@ -1,0 +1,42 @@
+{
+  "id": "alpha",
+  "header": {
+    "title": "Alpha — Synthetic Kernel Project for the Export Tests",
+    "date": "2026",
+    "repository": {
+      "github_url": "https://github.com/simon-jd/alpha"
+    },
+    "user_reported": true
+  },
+  "user_clarifications": [
+    "SECRET-CLARIFICATION: a synthetic private note that must never be exported."
+  ],
+  "workstreams": [
+    {
+      "id": "alpha-kernels",
+      "title": "Synthetic kernels",
+      "period": "Nov 2026",
+      "date": "2026",
+      "repository": {
+        "github_url": "https://github.com/simon-jd/alpha"
+      },
+      "user_reported": true,
+      "tracks": ["ml_infra/gpu_kernels", "mle"],
+      "tech_stack": ["CUDA", "PyTorch FSDP2"],
+      "summary": "Synthetic kernels measured on a made-up device.",
+      "bullets": [
+        "Cut a synthetic step from 2.50 to 1.25 s across 1,024 runs.",
+        "Kept 3 of 4 synthetic variants."
+      ]
+    },
+    {
+      "id": "alpha-tooling",
+      "title": "Synthetic tooling",
+      "period": "2026",
+      "tracks": ["sde"],
+      "tech_stack": ["Python"],
+      "summary": "Synthetic tooling around the kernels.",
+      "bullets": ["Wrote 12 synthetic tests."]
+    }
+  ]
+}

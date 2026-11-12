@@ -1,0 +1,56 @@
+{
+  "id": "fairsched",
+  "title": "fairsched — Fair Multi-Tenant Scheduling for vLLM: Virtual Token Counter Scheduler Plugin, Work-Based Billing and Go Tenant Gateway",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/fairsched",
+  "workstreams": [
+    {
+      "id": "vtc-scheduler-plugin",
+      "title": "Virtual Token Counter scheduler plugin inside vLLM 0.31.0",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/inference_serving",
+        "ml_infra/inference_engine"
+      ],
+      "tech_stack": [
+        "vLLM",
+        "Python",
+        "Docker"
+      ],
+      "summary": "Out-of-tree scheduler plugin for vLLM 0.31.0 that implements the Virtual Token Counter (VTC; Sheng et al., OSDI 2024) without modifying vLLM: it subclasses AsyncScheduler, orders admission and each step's token budget by the weighted service each tenant has received, bills only the tokens that actually ran, and never preempts a request on its own. Evaluated on one RTX 4090 serving Qwen2.5-7B-Instruct BF16 (chunked prefill, async scheduling, prefix caching) with synthetic, seeded two-tenant traces, 3 to 6 seeds per arm, against vLLM's FCFS and static priority.",
+      "bullets": [
+        "Built an out-of-tree vLLM 0.31.0 scheduler plugin (subclass of AsyncScheduler loaded with --scheduler-cls; vLLM unmodified) implementing the Virtual Token Counter: per-tenant waiting queues pop the least-served tenant's oldest request, and a tenant that returns after its queue emptied is lifted to the lowest backlogged counter so idle time cannot be banked.",
+        "With two backlogged peers on one RTX 4090 (Qwen2.5-7B-Instruct, synthetic seeded traces) where one tenant sends 3× the other's demand, gave the lighter tenant 0.50 of billed service against 0.25 under vLLM's FCFS (5 seeds), and split service 0.67 : 0.33 under 2 : 1 weights (target 0.667).",
+        "During a 300-request burst from one tenant, kept the other tenant's median TTFT at 0.39–0.50 s against 28.8–40.5 s under FCFS (5 seeds); static priority with that tenant marked high was faster still (0.23–0.30 s) but has to be told who is interactive and gives one backlogged peer everything (1.00 : 0.00).",
+        "Billed the tokens vLLM actually scheduled in each step (prefill at weight 1, decode at 2): prefix-cache hits are never billed, recompute after a KV-pressure preemption is detected from executed positions and billed to a separate system account, and steps of requests aborted mid-flight are reclassified as wasted; CPU tests run the real vLLM 0.31.0 scheduler, KV cache manager and prefix cache with only the model forward replaced.",
+        "Dropped an earlier design that preempted for fairness after it livelocked on a deliberately overloaded run with 6,144-token prompts (678 preemptions over 2,036 logged steps, 99.5% of dispatched prefill tokens recomputed); on the long_prompt workload the current design finishes the long requests as fast as FCFS (16.1–16.3 s) with 0 preemptions, and the short tenant's p99 TTFT is 1.9–3.0 s instead of 10.3–12.8 s.",
+        "Measured VTC's costs: throughput 0.53% below FCFS on a saturating trace (paired over 6 seeds with the arm order rotated, 95% interval 0.23–0.83%), and the light tenant lost 8–20 requests per burst to KV-pressure preemption against 0–8 under FCFS; an optional kv_share victim order brought that to 0 without lowering its latency, so the default order stayed."
+      ]
+    },
+    {
+      "id": "gateway-and-evaluation",
+      "title": "Go tenant gateway, open-loop load generator and repeated-seed fairness evaluation",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/inference_serving",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "Go",
+        "Python",
+        "vLLM",
+        "Docker",
+        "matplotlib"
+      ],
+      "summary": "A Go gateway that maps API keys to tenants and a Go open-arrival load generator drive repeated-seed experiments on one RTX 4090 (Qwen2.5-7B-Instruct BF16, vLLM 0.31.0, synthetic seeded two-tenant traces) comparing VTC with FCFS (the plugin in passthrough), static priority and a per-tenant gateway concurrency cap swept at 4, 8, 16 and 32. A step-time fit over the per-step log estimates what each tenant's work cost the GPU, and paired seed-for-seed comparisons with rotated arm order measure the plugin's throughput overhead.",
+      "bullets": [
+        "Built a Go gateway that maps API keys to tenants, strips client-supplied fairsched*, vllm_xargs and priority fields, injects a trusted vllm_xargs, always streams, and cancels the upstream request when the client disconnects, so vLLM's abort path runs and the plugin can account the work as wasted.",
+        "Swept a per-tenant gateway concurrency cap (4, 8, 16, 32) as the alternative to in-engine fairness on a 300-request noisy-neighbour burst (seeds 1–5, arm order rotated): a cap of 32 gave the interactive tenant a 13–63% lower median TTFT than VTC with nothing preempted, VTC won only that tenant's p99 (0.86–1.43 s against 4.17–6.06 s), and caps of 8 and 4 pushed the burst's finish to 194–206 s and 313–334 s.",
+        "Fit each step's wall time to the logged work (prefill tokens, decode steps, causal attention pairs), pairing step k with the interval between the next two log records because async scheduling logs a step while the previous one is still on the GPU: R² 0.997 and a 0.54 ms median error over 29,744 steps, against R² 0.63–0.68 for the other pairings.",
+        "Showed with that fit that VTC's prefill/decode weights of 1 and 2 are not this GPU's costs: at the margin a decode token cost 0.97× a prefill token on mixed request shapes (1.49× and 1.71× on two other workloads), so an even billed split gave the prefill-heavy tenant 53–54% of fitted GPU time, and billing decode at the fitted 0.97 overshot to 0.40 : 0.60; the default weight stayed 2.",
+        "Measured scheduler overhead two ways: CPU time per schedule() and update_from_output() call in the real vLLM scheduler, where VTC added 172, 311 and 674 µs at 64, 128 and 256 running requests (median of 5 runs, about 0.6% of a 50 ms decode step at 128), and end to end on a saturating trace over 6 seeds with the arm order rotated, where passthrough against no plugin was unresolved (−0.035%, 95% interval −0.10% to +0.03%).",
+        "Kept the evaluation's limits explicit: one RTX 4090, one model and 3 to 6 seeds per arm on synthetic traces; the cap was swept only on the noisy-neighbour trace, and on mixed request shapes a cap of 16 stretched the run to 146 s instead of 64."
+      ]
+    }
+  ]
+}

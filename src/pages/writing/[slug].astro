@@ -1,0 +1,147 @@
+---
+// A post, /writing/<slug>/ (spec §5): the article head (type, month and reading time over
+// the title and the summary), the MDX body, then its tags, the project it draws on and
+// the date it was last updated.
+import { render, type CollectionEntry } from 'astro:content';
+import { MDX_COMPONENTS } from '../../components/mdx.ts';
+import Article from '../../layouts/Article.astro';
+import { publishedPosts } from '../../lib/posts.ts';
+import { getProjects, type ProjectView } from '../../lib/projects.ts';
+import { isoDate, monthLabel } from '../../lib/site.ts';
+import { readingMinutes, tagSlug } from '../../lib/writing.ts';
+
+interface Props {
+  post: CollectionEntry<'writing'>;
+  project?: ProjectView;
+}
+
+/** One page per published post. Throws when a post names a project that is not allowlisted. */
+export async function getStaticPaths() {
+  const [posts, projects] = await Promise.all([publishedPosts(), getProjects()]);
+  const byId = new Map(projects.map((p) => [p.id, p]));
+  return posts.map((post) => {
+    const id = post.data.project;
+    const project = id === undefined ? undefined : byId.get(id);
+    if (id !== undefined && !project)
+      throw new Error(`${post.filePath ?? post.id}: project "${id}" is not in content/allowlist.yaml, so it has no page to link to`);
+    return { params: { slug: post.id }, props: { post, project } };
+  });
+}
+
+const { post, project } = Astro.props;
+const { title, summary, type, date, updated, tags } = post.data;
+if (post.body === undefined) throw new Error(`${post.filePath ?? post.id}: no body to time`);
+const { Content } = await render(post);
+const hasFoot = tags.length > 0 || project !== undefined || updated !== undefined;
+---
+
+<Article
+  title={title}
+  kicker={`${type} · ${monthLabel(date)} · ${readingMinutes(post.body)} min`}
+  dek={summary}
+  ogImage={`/og/writing/${post.id}.png`}
+>
+  <Content components={MDX_COMPONENTS} />
+  {
+    hasFoot && (
+      <footer class="post-foot">
+        <dl>
+          {
+            tags.length > 0 && (
+              <div>
+                <dt>tags</dt>
+                <dd>
+                  <ul class="tags">
+                    {tags.map((tag) => (
+                      <li>
+                        <a href={`/writing/tag/${tagSlug(tag)}/`}>{tag}</a>
+                      </li>
+                    ))}
+                  </ul>
+                </dd>
+              </div>
+            )
+          }
+          {
+            project && (
+              <div class="project">
+                <dt>related project</dt>
+                <dd>
+                  <a href={project.href}>
+                    {project.name}
+                    {!project.caseStudy && (
+                      <>
+                        <span aria-hidden="true">{' ↗'}</span>
+                        <span class="visually-hidden">{' (GitHub)'}</span>
+                      </>
+                    )}
+                  </a>
+                </dd>
+              </div>
+            )
+          }
+          {
+            updated && (
+              <div>
+                <dt>updated</dt>
+                <dd>
+                  <time datetime={isoDate(updated)}>{isoDate(updated)}</time>
+                </dd>
+              </div>
+            )
+          }
+        </dl>
+      </footer>
+    )
+  }
+</Article>
+
+<style>
+  .post-foot {
+    margin-top: 40px;
+    padding-top: 18px;
+    border-top: 1px solid var(--line);
+  }
+
+  dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 10px 18px;
+    margin: 0;
+    font: 13px/1.6 var(--font-mono);
+  }
+
+  /* Each term and its value share a grid row. */
+  dl > div {
+    display: contents;
+  }
+
+  dt {
+    color: var(--muted);
+  }
+
+  dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  @media (width <= 640px) {
+    dl {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 2px;
+    }
+
+    div + div dt {
+      margin-top: 10px;
+    }
+  }
+</style>

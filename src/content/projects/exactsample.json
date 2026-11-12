@@ -1,0 +1,66 @@
+{
+  "id": "exactsample",
+  "title": "exactsample — Batch-Invariant Sampling and Speculative Verification Kernels in CUDA: Certified FP32 with FP64 Fallback, Exact Top-k/Top-p, Position-Keyed RNG",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/exactsample",
+  "workstreams": [
+    {
+      "id": "exact-sampling-kernels",
+      "title": "Exact, batch-invariant sampling and draft-verification kernels, checked on an RTX 4090 and an A10 vGPU",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/gpu_kernels",
+        "ml_infra/inference_engine"
+      ],
+      "tech_stack": [
+        "CUDA",
+        "C++",
+        "PyTorch",
+        "Python",
+        "NumPy",
+        "SciPy",
+        "compute-sanitizer",
+        "pytest",
+        "CMake",
+        "Snowflake ML Jobs"
+      ],
+      "summary": "A CUDA library (PyTorch custom op) for the last step of LLM decoding on one RTX 4090 (sm_89): temperature, top-k, top-p, min-p and greedy sampling plus ratio and coupled verification of speculative drafts, defined in FP64, computed in certified FP32 and recomputed in FP64 only where the error bound does not settle a decision. Every random draw is keyed by (seed, request stream, absolute position), so a request gets the FP64 reference's tokens whatever else is in the batch; checked on logit rows captured from Qwen3-8B decoding and on tests that force each fallback. Built for sm_86 as well as sm_89, the same library returned the RTX 4090's outputs byte for byte on one NVIDIA A10-24Q vGPU (sm_86) on a Snowflake trial compute pool, driver 570 with the CUDA 13.2 forward-compatibility driver.",
+      "bullets": [
+        "Built fused CUDA kernels for sampling and speculative-draft verification in which every FP32 score, weight and sum carries an error bound: a draw is final when the winner's lower bound clears every other token's upper bound, and anything else is recomputed in FP64, which runs at 1/64 of the FP32 rate on the RTX 4090; on 192 requests (352 rows) from logits captured from Qwen3-8B, every request's tokens, accepted length and status matched the FP64 NumPy reference with no FP64 fallback.",
+        "Made top-k and top-p cuts exact with ties split by token ID: a 128-bin histogram of each token's distance below the row maximum localizes the candidates, and a radix select over order-preserving keys in shared memory runs on at most 2,048 tokens; with Qwen3's settings (T=0.6, top-k 20, top-p 0.95) the cells take 2.5 to 6.0 times less GPU time than vLLM 0.31's sampler and 1.7 to 12 times less than FlashInfer 0.7's.",
+        "Keyed every random value by Philox4x32-10 at (seed, stream, position, substream, token / 4), with separate substreams for the target draw, ratio acceptance and residual draw, so a request's tokens do not depend on its batch slot, the kernel's split of the row or preemption; tests check each request alone, permuted, next to other requests and at different slice counts, and one library built for sm_86 and sm_89 returned the RTX 4090's tokens, accepted lengths, statuses and paths byte for byte on an A10-24Q vGPU (192 of 192 requests per capture, 96 tests passed and 8 skipped there).",
+        "Pruned noise generation with a bound: the greedy token's score bounds the winner from below, so a token whose logit plus the largest possible Gumbel noise falls short is skipped without generating its noise; verified the FP32 Gumbel noise against its 2^-19 (1 + |G|) error bound over all 2^32 Philox words (worst case 0.13 of the bound).",
+        "Split each row across up to 32 blocks for small batches, with the last block to arrive (one atomic counter per row) merging partials in slice order rather than arrival order, so a single request no longer leaves 127 of 128 SMs idle and the result stays deterministic without a grid barrier; the streaming kernels use at most 64 registers.",
+        "Validated against exact laws: a statistical plan fixed in advance (G-tests against rational-arithmetic enumerations, 2M draws per cell) passes in all ten cells on the CUDA path (smallest p-value 0.44) with identical counts when every row is forced through the FP32 predicate path, and compute-sanitizer memcheck, racecheck, initcheck and synccheck report no errors over the CUDA tests."
+      ]
+    },
+    {
+      "id": "sampler-benchmark-vllm",
+      "title": "Sampler benchmark against vLLM and FlashInfer, and vLLM 0.31 integration",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/inference_engine",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "vLLM",
+        "FlashInfer",
+        "CUPTI",
+        "CUDA",
+        "PyTorch",
+        "Python",
+        "Bash",
+        "Snowflake ML Jobs"
+      ],
+      "summary": "Benchmarked the kernels against vLLM 0.31's model-runner-v2 sampler and FlashInfer 0.7.0.post1 on one RTX 4090 with 512 decode-step logit rows captured from Qwen3-8B (not synthetic): 3 settings x 8 shapes, 10 interleaved runs per implementation, each a fresh process, clocks not locked. Integrated the library into vLLM 0.31 for ordinary sampling and greedy draft models and measured TPOT end to end on Qwen3-1.7B and Qwen3-8B, where the gain is small. The benchmark was repeated on one A10-24Q vGPU on a Snowflake trial compute pool, where CUPTI records no kernels, so that table uses cold-call times.",
+      "bullets": [
+        "Benchmarked against vLLM 0.31's model-runner-v2 sampler and FlashInfer 0.7 on 512 logit rows captured from Qwen3-8B decoding (median CUPTI GPU time over 10 interleaved runs, each a fresh process): with Qwen3's settings (T=0.6, top-k 20, top-p 0.95), 96 μs for 128 requests against 455 and 626 μs, and 382 μs for 64 requests verifying 4 drafts each against 1,535 and 2,924 μs.",
+        "Kept the losses in the record: temperature-only sampling of up to eight requests takes 1.3 to 1.8 times vLLM's GPU time (17 against 10 μs for one request) because the fixed kernel sequence reads each row twice in five launches, and FlashInfer is 1.14 times faster on one top-p-only request (34 against 39 μs); from 32 requests it is level or ahead (84 vs 179 μs at 128), and its call time with host overhead is lower in every cell (29 vs 50 μs for one request).",
+        "Controlled the comparison: every implementation starts from the same bf16 logits with per-step buffers prepared outside the timed call, and each run reports GPU time (CUPTI), call time (CUDA events over 100 calls) and a cold call after writing 256 MB to evict the 72 MB L2; the interquartile range is within 1% of the median in 69 of 72 cells, and the 155 MB logit capture regenerates byte for byte from its recorded sha256.",
+        "Integrated the library into vLLM 0.31 and measured end to end on Qwen3-1.7B and Qwen3-8B with 1 to 64 requests and no draft model (five runs per arm): TPOT dropped 0.5 to 2.5% with top-k and top-p and rose 0.1 to 0.7% with temperature alone, since sampling is only 0.2 to 1.7% of a decode step with exactsample and 0.1 to 5.8% with vLLM's sampler.",
+        "Limit: batch invariance covers the sampler, not the model; without VLLM_BATCH_INVARIANT=1 a request's logits, and so its tokens, depend on its batch with either sampler, and with batch-invariant kernels vLLM's own sampler is also invariant for seeded requests; there is no CUDA graph capture, and the bridge covers only greedy draft models and ordinary sampling.",
+        "Reran the benchmark on one NVIDIA A10-24Q vGPU (sm_86) on a Snowflake trial compute pool with the same capture, package versions and 10 interleaved runs; CUPTI records no kernels there, so cells compare the median cold-call time: with Qwen3's settings, 361 μs for 128 requests against 1,463 and 1,736 μs, and 809 μs for 64 requests verifying 4 drafts each against 3,453 and 7,445 μs, while three temperature-only cells lose to vLLM by 1.07 to 1.46 times and one top-p request to FlashInfer by 1.29 times."
+      ]
+    }
+  ]
+}

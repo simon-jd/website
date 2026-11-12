@@ -1,0 +1,53 @@
+{
+  "id": "quorum-market",
+  "title": "Quorum Market — Distributed E-Commerce Backend & Order-Book Matching",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/quorum-market",
+  "workstreams": [
+    {
+      "id": "quorum-commerce-backend",
+      "title": "Quorum KV replication and inventory checkout correctness",
+      "period": "2026",
+      "tracks": [
+        "infra/distributed_systems",
+        "sde"
+      ],
+      "tech_stack": [
+        "Go",
+        "RabbitMQ",
+        "Redis",
+        "Docker Compose",
+        "Prometheus",
+        "Grafana"
+      ],
+      "summary": "Go e-commerce backend on a single cloud Linux host (8 cores/16 GiB, RabbitMQ 4.1, Redis 7.2, 20 ms injected network latency): 8 application services and three in-memory KV clusters of 13 nodes in total, replicated with quorum reads and writes - product N=5 (W=5, R=1), cart N=5 (W=3, R=3) and core N=3 (W=2, R=2) - where overlapping read and write quorums provide replication but not compare-and-swap. Stock integrity comes from a single-owner warehouse process whose per-SKU versioned critical section kept a 1,000-request checkout storm on one 100-unit SKU at exactly 100 reservations and 900 sold out with no negative stock, while a coordinator kill after core-quorum commit produced 10 readable orders and 0 messages because there is no outbox.",
+      "bullets": [
+        "Tested quorum fault tolerance with a fixed 18-case fault matrix in a cloud simulation: all 9 cases without a reachable quorum returned an explicit 503, and every case either succeeded or returned 503 across the 3 clusters, each with its quorum reachable or not, for reads, writes and scans.",
+        "Built a Go 1.26.8 e-commerce backend on a single cloud Linux host (8 cores/16 GiB, RabbitMQ 4.1, Redis 7.2, 20 ms injected network latency) with 8 application services and three in-memory KV clusters using quorum reads and writes for quorum consistency (R+W>N) without linearizability: product N=5 (W=5, R=1), cart N=5 (W=3, R=3) and core N=3 (W=2, R=2).",
+        "Made the single warehouse process the atomic point for stock with single-owner versioned updates: inside a per-SKU mutex, one critical section compares the version, checks availability, decrements and increments the version, making it the oversell guard; after a payment failure, compensation only releases reservations that legitimately succeeded.",
+        "Stress-tested checkout in a simulated cloud storm of 100 concurrent clients x 10 requests with 1,000 distinct request IDs on one SKU stocked with 100 units: exactly 100 reservations succeeded, 900 were sold out and stock reached 0, and replaying each successful request 3 times still produced only 100 receipts and 100 decrements.",
+        "Kept reservations idempotent in a cloud lab test with a strict reserved-to-committed or reserved-to-released lifecycle: 20 unpaid reservations canceled concurrently 5 times each were each released exactly once, leaving stock 20, while the remaining 80 committed, matching the initial 100 = 80 sold + 20 available.",
+        "Recorded 230 test events in the cloud regression (210 top-level tests + 20 named subtests) at 55.9% coverage, with the 30-event fault subset (10 top-level + 20 subtests) reported separately.",
+        "Killed the checkout coordinator after the order was written to the core quorum but before RabbitMQ publish, with all core nodes running: 10 trials produced 10 readable orders and 0 messages, because the commit is only an in-memory replica acknowledgement and no outbox exists; in-process inventory and receipts are lost on restart, so this is not a recoverable production inventory system."
+      ]
+    },
+    {
+      "id": "order-book-matching",
+      "title": "Order-book matching on historical replay with RL market-making agents",
+      "period": "2026",
+      "tracks": [
+        "sde"
+      ],
+      "tech_stack": [
+        "Python",
+        "Terraform",
+        "Amazon Web Services (AWS)"
+      ],
+      "summary": "The project's order-book matching path, driven by replayed historical order books plus 4 Python reinforcement-learning market-making agents at a simulated 8,000+ matches per second; the AWS Terraform configuration was applied for a deployment test and destroyed afterwards. No external users placed orders.",
+      "bullets": [
+        "Reached a simulated matching rate of 8,000+ matches per second while checking the matching state machine and concurrency safety, driving order-book matching on cloud VMs with replayed historical order books plus 4 Python reinforcement-learning market-making agents.",
+        "Applied the project's AWS Terraform configuration for a deployment test and destroyed it afterwards."
+      ]
+    }
+  ]
+}

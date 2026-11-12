@@ -1,0 +1,115 @@
+---
+// A project card (mockup lines 83–96, 197–268): the plate when the project has one and
+// `showPlate` is not false, then the name, the one-liner and the stack. The whole card
+// links to the case study, or to the repo, marked ↗, when there is none. ProjectGrid
+// lays the cards out.
+import type { ProjectView } from '../lib/projects.ts';
+import Plate from './Plate.astro';
+
+interface Props {
+  project: ProjectView;
+  /** Whether the plate shows when the project has one. */
+  showPlate?: boolean;
+}
+
+const { project, showPlate = true } = Astro.props;
+const { id, name, href, oneLiner, stack, plate, plateCaption, caseStudy } = project;
+---
+
+<article class="project-card" data-project={id}>
+  {
+    showPlate && plate !== undefined && plateCaption !== undefined && (
+      <Plate id={id} numeral={plate} caption={plateCaption} />
+    )
+  }
+  <h3>
+    <a href={href}>
+      {name}
+      {
+        !caseStudy && (
+          <>
+            <span class="external" aria-hidden="true">{' ↗'}</span>
+            <span class="visually-hidden">{' (GitHub)'}</span>
+          </>
+        )
+      }
+    </a>
+  </h3>
+  <p class="one-liner">{oneLiner}</p>
+  <p class="stack">{stack.join(' · ')}</p>
+</article>
+
+<style>
+  .project-card {
+    position: relative;
+    padding: 12px 12px 16px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+
+  .project-card:hover {
+    border-color: var(--mark);
+  }
+
+  h3 {
+    margin: 0 0 6px;
+    font-size: 26px;
+    overflow-wrap: anywhere;
+  }
+
+  h3 a {
+    text-decoration-color: transparent;
+  }
+
+  .project-card:hover h3 a {
+    text-decoration-color: currentColor;
+  }
+
+  /* The link covers the card, and its focus ring goes round the whole card. */
+  h3 a::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 8px;
+  }
+
+  h3 a:focus-visible {
+    outline: none;
+  }
+
+  h3 a:focus-visible::after {
+    outline: 2px solid var(--accent);
+    outline-offset: 3px;
+  }
+
+  .external {
+    color: var(--muted);
+    font-size: 0.7em;
+  }
+
+  p {
+    margin: 0;
+  }
+
+  .one-liner {
+    color: var(--muted);
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  /* Lowercase only on screen, so the names stay as the bank spells them. */
+  .stack {
+    margin-top: 10px;
+    color: var(--muted);
+    font: 12px/1.5 var(--font-mono);
+    text-transform: lowercase;
+    overflow-wrap: anywhere;
+  }
+
+  @media (width <= 640px) {
+    .one-liner {
+      font-size: 16px;
+    }
+  }
+</style>

@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150">
+  <rect x="18" y="42" width="14" height="14" rx="1"/>
+  <rect x="18" y="59" width="14" height="14" rx="1"/>
+  <rect x="18" y="76" width="14" height="14" rx="1"/>
+  <rect x="18" y="93" width="14" height="14" rx="1"/>
+  <rect x="35" y="42" width="14" height="14" rx="1"/>
+  <rect x="35" y="59" width="14" height="14" rx="1"/>
+  <rect x="35" y="76" width="14" height="14" rx="1"/>
+  <rect x="35" y="93" width="14" height="14" rx="1"/>
+  <rect x="52" y="42" width="14" height="14" rx="1"/>
+  <rect x="52" y="59" width="14" height="14" rx="1" fill="url(#hatch-accent)"/>
+  <rect x="52" y="76" width="14" height="14" rx="1" fill="url(#hatch-accent)"/>
+  <rect x="52" y="93" width="14" height="14" rx="1"/>
+  <rect x="69" y="42" width="14" height="14" rx="1"/>
+  <rect x="69" y="59" width="14" height="14" rx="1" fill="url(#hatch-accent)"/>
+  <rect x="69" y="76" width="14" height="14" rx="1" fill="url(#hatch-accent)"/>
+  <rect x="69" y="93" width="14" height="14" rx="1"/>
+  <rect x="86" y="42" width="14" height="14" rx="1"/>
+  <rect x="86" y="59" width="14" height="14" rx="1"/>
+  <rect x="86" y="76" width="14" height="14" rx="1"/>
+  <rect x="86" y="93" width="14" height="14" rx="1"/>
+  <rect x="103" y="42" width="14" height="14" rx="1"/>
+  <rect x="103" y="59" width="14" height="14" rx="1"/>
+  <rect x="103" y="76" width="14" height="14" rx="1"/>
+  <rect x="103" y="93" width="14" height="14" rx="1"/>
+  <rect x="49.5" y="56.5" width="35" height="35" rx="2" stroke-width="1.6"/>
+  <text x="133" y="82">×</text>
+  <rect x="152" y="42" width="14" height="14" rx="1"/>
+  <rect x="152" y="59" width="14" height="14" rx="1"/>
+  <rect x="152" y="76" width="14" height="14" rx="1"/>
+  <rect x="152" y="93" width="14" height="14" rx="1"/>
+  <rect x="169" y="42" width="14" height="14" rx="1"/>
+  <rect x="169" y="59" width="14" height="14" rx="1"/>
+  <rect x="169" y="76" width="14" height="14" rx="1"/>
+  <rect x="169" y="93" width="14" height="14" rx="1"/>
+  <rect x="186" y="42" width="14" height="14" rx="1"/>
+  <rect x="186" y="59" width="14" height="14" rx="1"/>
+  <rect x="186" y="76" width="14" height="14" rx="1"/>
+  <rect x="186" y="93" width="14" height="14" rx="1"/>
+  <path d="M67 56 V26 M186 42 V26" stroke-width="0.7"/>
+  <text x="67" y="19">i</text>
+  <text x="186" y="19">ii</text>
+</svg>

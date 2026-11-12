@@ -1,0 +1,56 @@
+{
+  "id": "adpulse",
+  "title": "AdPulse — Ad Event Streaming Pipeline and ClickHouse Query API",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/AdPulse",
+  "workstreams": [
+    {
+      "id": "streaming-measurement",
+      "title": "Kafka/Flink ingestion, reconciliation and collector reliability",
+      "period": "2026",
+      "tracks": [
+        "de"
+      ],
+      "tech_stack": [
+        "Apache Kafka",
+        "Apache Flink",
+        "Debezium",
+        "PostgreSQL",
+        "SQLite",
+        "Docker Compose",
+        "Java",
+        "Python"
+      ],
+      "summary": "Kafka-to-Flink measurement pipeline for advertising events - validation, deduplication, normalization, impression/click/conversion joins, CDC historical dimensions and metric aggregation into Kafka result topics - with reconciliation and collector-reliability checks on synthetic data. The Flink stage uses the SQL and DataStream APIs with embedded RocksDB state.",
+      "bullets": [
+        "Completed a simulated full data reconciliation over 3,949,000 synthetic advertising records with 0 unmatched rows and 0 duplicate business effects, comparing receipt, disk-reference and database business results by business key and value.",
+        "Built the Flink stage of the streaming pipeline: it consumes synthetic advertising events from Kafka, validates, deduplicates and normalizes them, joins impressions, clicks and conversions, enriches them with CDC-backed historical dimensions, and aggregates metrics into Kafka result topics.",
+        "Verified admission control on the collector's single Kafka transaction slot in a cloud stress test of 50 concurrent requests: 1 admitted and 49 rejected while 9/9 independent health probes passed; a fenced Kafka transactional producer stops admitting input until explicitly replaced, and a cancelled request keeps its slot until the native Kafka call returns.",
+        "Cut the reconciliation reference process's median peak RSS from 1,100,000 KiB to 139,700 KiB (87.3% lower) on 206,000 synthetic records in a fixed 2 CPU / 4 GiB environment by moving joins and sorting onto disk with SQLite, trading 2.29x elapsed time (32.0 s to 73.28 s, cold index build included) and 605 MiB temporary disk, with identical output hashes in 3/3 paired runs."
+      ]
+    },
+    {
+      "id": "bounded-query",
+      "title": "Release-pinned bounded ClickHouse query API",
+      "period": "2026",
+      "tracks": [
+        "sde",
+        "de"
+      ],
+      "tech_stack": [
+        "Python",
+        "FastAPI",
+        "ClickHouse",
+        "PostgreSQL",
+        "Docker Compose",
+        "pytest"
+      ],
+      "summary": "Release-pinned query API over ClickHouse: the historical query benchmark ran on ClickHouse 24.8, and the later migration and the current deployment configuration use ClickHouse 26.3.32.14.",
+      "bullets": [
+        "Cut median first-page query time from 622 ms to 32.9 ms (94.71% lower), timed from query-function entry to result-object return, by pushing filtering and keyset pagination into SQL instead of loading the whole release into Python, in an independent cloud 21,667-row, limit-100 experiment on synthetic data pinned to ClickHouse 24.8 (the historical benchmark version, later migrated to 26.3.32.14) and Python 3.12.",
+        "Lowered the first page's traced Python peak allocation from 71,300,000 B to 399,000 B (99.44%, decimal MB, not RSS) over five alternating paired runs after warmup.",
+        "Traversed 44 pages (43×500 + 167 = 21,667 rows) across 21 PostgreSQL active-release switches with no missing or duplicate rows in a cloud synthetic run, by pinning pagination to immutable releases with HMAC-signed cursors that bind release ID, filters, sort keys and original expiry; an expired cursor gets 503 with no renewal."
+      ]
+    }
+  ]
+}

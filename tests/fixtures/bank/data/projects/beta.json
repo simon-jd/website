@@ -1,0 +1,23 @@
+{
+  "id": "beta",
+  "header": {
+    "title": "Beta — Synthetic Project Hosted Elsewhere",
+    "date": "2026",
+    "repository": {
+      "github_url": "https://github.com/someone-else/beta"
+    },
+    "user_reported": true
+  },
+  "user_clarifications": [],
+  "workstreams": [
+    {
+      "id": "beta-main",
+      "title": "Synthetic main workstream",
+      "period": "2026",
+      "tracks": ["infra/distributed_systems"],
+      "tech_stack": ["Go"],
+      "summary": "A synthetic workstream.",
+      "bullets": ["Served 5 synthetic requests."]
+    }
+  ]
+}

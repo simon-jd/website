@@ -1,0 +1,45 @@
+# A synthetic site for tests/unit/content-check.test.ts. It fits the allowlist schema
+# but is not a full selection: the content check does not run validateSelection.
+projects:
+  - id: alpha
+    focus: ml-infra
+    featured: true
+    plate: 1
+    plate_caption: "i 25 collectives · ii bucket"
+    # Project scope: 3.14 is in ws-b, so it passes here.
+    one_liner: "Synthetic weight sync: 1478 → 25 collectives, 3.14 ms per call."
+    stack: [NCCL]
+    key_results:
+      - text: "Synthetic sync 2.20 s per step"
+        from: ws-a
+      # Workstream scope: 3.14 is only in ws-b, so it fails here.
+      - text: "Synthetic tooling 3.14 ms per call"
+        from: ws-a
+  - id: beta
+    focus: infra
+    featured: false
+    one_liner: "A synthetic pipeline with 7 stages."
+    stack: [Kafka]
+
+home:
+  stats:
+    project: alpha
+    from: ws-a
+    # Project scope: 42 is in ws-b, so it passes here.
+    caption: "Alpha · 42 synthetic runs"
+    items:
+      - value: "1,478 → 25"
+        label: collectives per push
+      - value: "2.20 s"
+        label: per step
+      # Workstream scope: 42 is only in ws-b, so it fails here.
+      - value: "42"
+        label: runs
+
+work:
+  # Work scope: the work export has no numbers, so 7 fails here although beta has it.
+  - id: acme
+    line: "Platform work in 7 stages."
+
+check:
+  ignore: ["99"]

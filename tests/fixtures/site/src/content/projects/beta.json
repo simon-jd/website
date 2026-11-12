@@ -1,0 +1,17 @@
+{
+  "id": "beta",
+  "title": "Beta — Synthetic Pipeline",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/beta",
+  "workstreams": [
+    {
+      "id": "beta-main",
+      "title": "Synthetic pipeline",
+      "period": "2026",
+      "tracks": ["de"],
+      "tech_stack": ["Apache Kafka"],
+      "summary": "Synthetic pipeline: 7 stages at 640 events/s.",
+      "bullets": []
+    }
+  ]
+}

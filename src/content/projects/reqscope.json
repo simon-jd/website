@@ -1,0 +1,82 @@
+{
+  "id": "reqscope",
+  "title": "reqscope — Per-Request CPU/GPU Tracing of vLLM Engine Steps: CUPTI Injection Collector, Blame Analyzer and Sampled Kernel Tracing",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/reqscope",
+  "workstreams": [
+    {
+      "id": "cupti-collector",
+      "title": "CUPTI injection collector and vLLM engine-step plugin",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/perf_analysis",
+        "ml_infra/inference_engine"
+      ],
+      "tech_stack": [
+        "C++20",
+        "CUPTI",
+        "CUDA",
+        "Python",
+        "vLLM",
+        "CMake"
+      ],
+      "summary": "A CUPTI injection library (C++20, loaded with CUDA_INJECTION64_PATH, no change to vLLM or PyTorch) that tags every kernel and copy with the vLLM engine step that launched it, plus a vLLM 0.31.0 plugin that records each step, its member requests and each token's producing step, on one clock with a measured error bound. Built and measured on one RTX 4090 with Qwen2.5-1.5B-Instruct (chunked prefill, async scheduling, CUDA 13.2) on synthetic load; the plugin-only and light modes run within 1% of no collector on TPOT, while full trace mode perturbs what it measures.",
+      "bullets": [
+        "Built a CUPTI injection library in C++20 (loaded with CUDA_INJECTION64_PATH; vLLM and PyTorch unchanged) and a vLLM 0.31.0 plugin that join every kernel and copy to its engine step and member requests through correlation ids rather than time windows, because under async scheduling step k+1 is launched before step k's token is processed.",
+        "Bounded CPU/GPU clock error with a probe thread that brackets a 4-byte copy between two clock reads every 500 ms: 280 µs from 59 paired probes with no violations, in a 23 s capture of 2.06M records, 1.69M of them GPU activities (99.0% linked to steps), with 0 lost.",
+        "Fixed record loss found by checking captures against CUPTI's own counters: an fdatasync of every 1 MiB segment on the buffer-draining thread had left CUPTI without a free buffer 2.2M times and dropped 460k records in 22.7 s, and recording every API call dropped 1.5M more (cudaGetDevice alone was half of 1.8M API records); rotation now only writes, and a per-callback whitelist keeps the APIs that submit, copy or synchronize.",
+        "Halved trace mode's spurious slow steps (503 to 231 over 3 seeds, against 6 with CUPTI off) by formatting CUPTI records straight to text (writer 0.33 to 0.10 cores) and using 32 MB CUPTI device buffers (launch stalls from 21 to 1 in 5,000 steps), while its latency cost did not measurably change: +17.0% TPOT p50 and +27.8% p99 at 16 requests/s open loop.",
+        "Measured overhead in open loop (Poisson arrivals of 512-token prompts at 8, 16 and 24 requests/s, 5 rounds with the mode order rotated): the plugin alone and light mode stayed within 1% of no collector on TPOT p50 and p99 at every rate."
+      ]
+    },
+    {
+      "id": "blame-analyzer",
+      "title": "Blame analyzer and blind multi-cause validation",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/perf_analysis",
+        "ml_infra/inference_serving"
+      ],
+      "tech_stack": [
+        "C++20",
+        "Python",
+        "CUPTI",
+        "vLLM",
+        "Nsight Systems",
+        "NVTX",
+        "Perfetto"
+      ],
+      "summary": "reqscope blame finds each request's slow inter-token gaps, the engine step that produced the token, that step's GPU busy time and co-scheduled members, and names the cause (interference, GPU slowdown or host delay), splitting interference excess over co-scheduled prefill tokens. Validated blind on one RTX 4090 (Qwen2.5-1.5B-Instruct, vLLM 0.31.0, CUDA 13.2) with 27 injected events over 3 seeds, and compared with a trivial rule, Nsight Systems and vLLM's own per-step log.",
+      "bullets": [
+        "Built reqscope blame, which marks inter-token gaps above 1.5× a request's median as slow, finds the engine step that produced the token, names the cause from step membership and GPU evidence against nearby comparable steps, and splits interference excess linearly over the co-scheduled prefill tokens.",
+        "Validated it blind on 27 injected events over 3 seeds (9 long prompts, 9 bursts of another process's fp16 matrix multiplies, 9 SIGSTOPs of the engine process; event windows written where blame never reads them): trace-mode blame gave a slow step the right cause for 27 of 27 events, against 18 of 27 for a trivial rule (any co-scheduled prefill means interference, anything else host delay).",
+        "Reported what per-kernel data actually adds: interference verdicts were identical to the trivial rule's step for step (recall 0.77, 27 of 35), the only gain was the 223 slow steps during GPU bursts, all correctly called GPU slowdown, and trace mode's own slow steps held host-delay precision over all steps to 0.04 (10 of 246).",
+        "Ran the same seeds under Nsight Systems 2025.6 with the plugin's NVTX step ranges: a GPU-busy-time rule also found 27 of 27 events with fewer slow steps of its own (98 against 231), so reqscope's own CUPTI tracing gave no better verdicts on this benchmark; vLLM's per-step log called 6 of the 9 engine-stop steps GPU slowdown.",
+        "On a single-cause interference run, the six long prompts were the top six culprits with 92.9% of excess decode latency, with per-step precision 1.00 (18 of 18) and recall 0.82 (18 of 22).",
+        "Sped up the analyzer on the 0.9 GB, 2.06M-record capture with a slicing-by-8 CRC32, one read per segment, sorted-vector JSON members and a dependency graph built only when reported: blame now takes 10.5 s and 4.1 GB (median of 3 runs on a shared host), where the one earlier timing, taken by a different script before these changes, was 28.9 s."
+      ]
+    },
+    {
+      "id": "sampled-tracing",
+      "title": "Sampled kernel tracing and the CUDA-graph late-end-time fix",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "C++20",
+        "CUPTI",
+        "CUDA",
+        "Python",
+        "vLLM"
+      ],
+      "summary": "A sampled mode that turns CUPTI per-kernel tracing on only for chosen engine steps: one step in N, or a 32-step window triggered when a step's interval reaches 150% of the recent median. Measured in two sessions on one RTX 4090 (Qwen2.5-1.5B-Instruct, vLLM 0.31.0, CUDA 13.2) on the 3-seed multi-cause benchmark and 5 open-loop rounds, the second after a guard-step fix for late kernel end times on CUDA graph replays.",
+      "bullets": [
+        "Added a sampled tracing mode that enables CUPTI kernel tracing only on chosen engine steps (every 4th, every 16th, or a 32-step window triggered when a step's start-to-start interval reaches 150% of the recent median), with blame taking GPU evidence only from traced steps.",
+        "Found and fixed late kernel end times: when tracing was off at a CUDA graph's next launch, CUPTI's records of its last traced launch got the end times of later launches; tracing now stays on for one guard step after each traced run, a test on a real CUDA graph fails without the fix, and the 1/4 arm's median traced decode-step kernel span fell from 20.0 to 5.95 ms (multi-cause seed 1).",
+        "With the trigger, found all 9 injected GPU bursts and 90% of their slow steps (206 of 228) while tracing 5.4% of steps, at +0.4% TPOT p50 and +1.5% p99 at 16 requests/s, against +37.1% p99 for full trace mode in the first session; every GPU-slowdown verdict of a sampled arm was right (275 of 275).",
+        "Kept its blind spot explicit: a 200 ms engine stop makes one slow step that the trigger never traces, so it named 0 of 9 stops, and periodic sampling found 2 of 9 at 1/4 and 1 of 9 at 1/16; in open-loop captures 119 of 3,600 traced decode steps at 1/4 still had late end times where the next step launched other graphs."
+      ]
+    }
+  ]
+}

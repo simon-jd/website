@@ -1,0 +1,16 @@
+---
+// /writing/ (spec §5): every published post, newest first.
+import WritingIndex from '../../layouts/WritingIndex.astro';
+import { publishedPosts } from '../../lib/posts.ts';
+import { typesInUse } from '../../lib/writing.ts';
+
+const posts = await publishedPosts();
+---
+
+<WritingIndex
+  heading="Writing"
+  dek="Essays, notes and field notes on the systems under machine learning, newest first."
+  posts={posts}
+  types={typesInUse(posts)}
+  current="all"
+/>

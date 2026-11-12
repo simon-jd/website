@@ -1,0 +1,34 @@
+---
+// /writing/type/<type>/ (spec §5): the published posts of one type, newest first. Built
+// only for the types that published posts use.
+import type { CollectionEntry } from 'astro:content';
+import WritingIndex from '../../../layouts/WritingIndex.astro';
+import { publishedPosts } from '../../../lib/posts.ts';
+import { TYPE_LABEL, typesInUse, type PostType } from '../../../lib/writing.ts';
+
+interface Props {
+  type: PostType;
+  posts: CollectionEntry<'writing'>[];
+  types: PostType[];
+}
+
+export async function getStaticPaths() {
+  const posts = await publishedPosts();
+  const types = typesInUse(posts);
+  return types.map((type) => ({
+    params: { type },
+    props: { type, posts: posts.filter((post) => post.data.type === type), types },
+  }));
+}
+
+const { type, posts, types } = Astro.props;
+const label = TYPE_LABEL[type];
+---
+
+<WritingIndex
+  heading={label[0].toUpperCase() + label.slice(1)}
+  dek={`${posts.length} ${posts.length === 1 ? 'post' : 'posts'}, newest first.`}
+  posts={posts}
+  types={types}
+  current={type}
+/>

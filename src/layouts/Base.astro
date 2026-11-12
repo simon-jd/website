@@ -1,0 +1,95 @@
+---
+// The page shell every route uses: the page and social-card metadata, fonts, tokens, the
+// theme scripts, the shared hatch patterns, the header and the footer. Pages put the
+// relief in the `art` slot.
+import '@fontsource/cormorant-garamond/latin-500.css';
+import '@fontsource/cormorant-garamond/latin-400-italic.css';
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/jetbrains-mono/latin-400.css';
+import '../styles/tokens.css';
+import '../styles/global.css';
+import displayFont from '@fontsource/cormorant-garamond/files/cormorant-garamond-latin-500-normal.woff2?url';
+import Footer from '../components/Footer.astro';
+import Header from '../components/Header.astro';
+import { HATCH_PATTERNS } from '../lib/art.ts';
+import { reliefImage } from '../lib/relief.ts';
+import { SITE } from '../lib/site.ts';
+import { THEME_INIT, THEME_TOGGLE } from '../lib/theme.ts';
+import { TOKENS } from '../lib/tokens.ts';
+
+interface Props {
+  title: string;
+  description?: string;
+  /** The page's social card, a path under /og/; the default card when not given. */
+  ogImage?: string;
+  /** `article` for case studies and posts. */
+  ogType?: 'website' | 'article';
+  /** A rule under the header, for article pages. */
+  ruled?: boolean;
+}
+
+const {
+  title,
+  description = SITE.description,
+  ogImage = '/og/default.png',
+  ogType = 'website',
+  ruled = false,
+} = Astro.props;
+const canonical = new URL(Astro.url.pathname, SITE.url).href;
+/**
+ * The phone-width relief for each system theme, when the page has one. It is the largest
+ * paint on phones; preloading it starts its download with the font's instead of after
+ * styles resolve. A stored theme that differs from the system's costs one extra image.
+ */
+const phoneRelief = Astro.slots.has('art')
+  ? { light: await reliefImage('day', 750, 'avif'), dark: await reliefImage('night', 750, 'avif') }
+  : undefined;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <script is:inline set:html={THEME_INIT}></script>
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:type" content={ogType} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:image" content={new URL(ogImage, SITE.url).href} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content={TOKENS.bg.day} />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content={TOKENS.bg.night} />
+    {
+      phoneRelief &&
+        Object.entries(phoneRelief).map(([scheme, href]) => (
+          <link
+            rel="preload"
+            href={href}
+            as="image"
+            type="image/avif"
+            media={`(width <= 640px) and (prefers-color-scheme: ${scheme})`}
+          />
+        ))
+    }
+    <link rel="preload" href={displayFont} as="font" type="font/woff2" crossorigin />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="alternate" type="application/rss+xml" href="/rss.xml" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <svg class="defs" width="0" height="0" aria-hidden="true" focusable="false">
+      <defs set:html={HATCH_PATTERNS} />
+    </svg>
+    <slot name="art" />
+    <Header ruled={ruled} />
+    <main id="main">
+      <slot />
+    </main>
+    <Footer />
+    <script is:inline set:html={THEME_TOGGLE}></script>
+  </body>
+</html>

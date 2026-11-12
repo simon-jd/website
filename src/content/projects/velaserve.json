@@ -1,0 +1,98 @@
+{
+  "id": "velaserve",
+  "title": "VelaServe — LLM Fan-Out Gateway: Streaming Measurement, Graceful Drain and AWS EKS Deployment",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/velaserve",
+  "workstreams": [
+    {
+      "id": "sse-measurement-client",
+      "title": "Go SSE measurement client: allocation and failure records",
+      "period": "Sep 2026",
+      "tracks": [
+        "sde",
+        "ml_infra/inference_serving",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "Go",
+        "Server-Sent Events (SSE)"
+      ],
+      "summary": "Go streaming measurement client for the VelaServe LLM fan-out gateway. In an explicit no-body-retention measurement mode, cut cumulative client-side SSE parser allocation by 87.1% (8,800,000 to 1,135,200 B/op) on a fixed 256 × 4,096-byte content-event workload in a cloud CPU microbenchmark, while keeping full SSE/JSON/error validation and failure-preserving TTFT/usage records. Fan-out means one upper-level task issues N related LLM sub-requests in parallel and waits for all of them, so the group's latency is set mainly by the slowest sub-request.",
+      "bullets": [
+        "Cut cumulative client-side SSE parser allocation by 87.1% (8,800,000 to 1,135,200 B/op) in the no-body-retention measurement mode, in a CPU microbenchmark on an 8-core x86 cloud host, by adding that explicit mode for measurement callers: it reuses a bounded event buffer and still runs the same SSE boundary, JSON and error checks; the workload was 256 synthetic 4,096-byte content events with usage and DONE on Go 1.26.6, with identical compile flags on both sides.",
+        "Reported the same-round full-text control at 8,760,000 B/op, so most of the gain comes from explicitly changing the output-retention contract for the measurement API.",
+        "Returned the specified error for all 400 injected stream faults - truncated UTF-8, oversized event, missing DONE and cancelled read stream, 100 each, at concurrency 32 on CPU - with no hanging goroutines, while failed requests kept their observed first-token time and usage and requests with no observed first token stayed absent instead of zero-filled.",
+        "Checked parser correctness item by item against a handwritten expected-event table - type, content length, first-content-event position, usage and terminal state.",
+        "Ran the parser comparison as six new paired processes in AB/BA order, 100 warmups and 1,000 measured iterations per side per process, with input generation outside timing and parse plus cleanup inside timing, then took the median of the six per-process B/op values; hardware was a single 8-core x86 cloud host with 32 GiB and no GPU, microbenchmark single-goroutine, fault tests at concurrency 32."
+      ]
+    },
+    {
+      "id": "aws-deployment",
+      "title": "Three-week AWS deployment with Terraform: EKS, Karpenter and Envoy Gateway",
+      "period": "2026",
+      "tracks": [
+        "infra/cloud_platform",
+        "ml_infra/inference_serving",
+        "sre"
+      ],
+      "tech_stack": [
+        "Terraform",
+        "AWS EKS",
+        "Karpenter",
+        "Envoy Gateway",
+        "k6",
+        "Prometheus",
+        "Grafana",
+        "vLLM"
+      ],
+      "summary": "Deployed the platform on AWS with Terraform and ran it for about 3 weeks (21 days) before destroying it to stop billing: EKS with Karpenter and Envoy Gateway, gateway and system pods on c6i.xlarge, and g5.xlarge GPU nodes switched on only when needed, with k6 as the traffic source and no public users. Envoy's P95 routing overhead was under 4 ms in its latency histograms collected by Prometheus and shown in Grafana, and the test period cost about $140 with Spot capacity and nodes scaled to zero.",
+      "bullets": [
+        "Deployed a Terraform-managed LLM inference gateway on AWS EKS for 21 days, using Karpenter, Envoy Gateway, and Spot instances, achieving <4 ms P95 routing overhead under synthetic k6 traffic; separately benchmarked Qwen2.5-0.5B FP16 with vLLM 0.28.0 on an RTX 4090, completing 1,728 requests across 36 load configurations and testing 10 backend failures.",
+        "Deployed the platform on AWS EKS with Terraform as infrastructure as code, together with Karpenter and Envoy Gateway; ran it for about 3 weeks (21 days) and destroyed it afterwards to stop billing.",
+        "Ran the test period for about $140 in total on Spot capacity with nodes scaled to zero, with gateway and system pods on c6i.xlarge nodes, g5.xlarge GPU nodes only on demand, and no ongoing monthly cost.",
+        "Measured Envoy's P95 routing overhead at under 4 ms under k6-generated test traffic, from Envoy latency histograms collected in Prometheus and shown in Grafana."
+      ]
+    },
+    {
+      "id": "graceful-drain",
+      "title": "SIGTERM drain, cancellation causes and SLO goodput on the CPU setup",
+      "period": "Sep 2026",
+      "tracks": [
+        "ml_infra/inference_serving",
+        "sre",
+        "sde"
+      ],
+      "tech_stack": [
+        "Go",
+        "Server-Sent Events (SSE)",
+        "Python"
+      ],
+      "summary": "Two-phase SIGTERM graceful shutdown for a Go SSE streaming gateway (Go 1.26.8), tested on cloud CPU against a simulated engine: across 40 real SIGTERMs, all 80 streams that could finish within the 2-second grace period completed while an immediate-cancel baseline aborted them, and SLO goodput counted every attempt, with 38 of 48 meeting the TTFT and TPOT targets.",
+      "bullets": [
+        "Completed all 80 streams that could finish within the 2-second grace period during graceful shutdown, across 40 real SIGTERMs on cloud CPU against a simulated engine (four real-subprocess scenarios, ten SIGTERMs each), while an immediate-cancel baseline aborted the same 80; every admitted request reached exactly one terminal state, and the scenarios were no in-flight work, completion within grace, stuck beyond grace, and the client-disconnect/SIGTERM race.",
+        "Implemented a two-phase SIGTERM drain for a Go SSE streaming gateway: it closes new admission atomically and fails readiness so new requests get 503 with Retry-After, lets admitted streams run to the end of the 2-second grace period, then cancels what remains and waits for terminal callbacks and trace sync before exit, recording whether each cancellation came from user disconnect, deadline or shutdown.",
+        "Measured 79.17% SLO attainment and SLO goodput of 38/60 = 0.633 requests/s in a 60-second open-arrival cell against a simulated engine on cloud CPU, with 38 of 48 attempts meeting both TTFT ≤ 300 ms and TPOT ≤ 40 ms and all attempts counted - 40 completed, 4 rejected, 4 timed out - over a window that includes drain.",
+        "Built the terminal-state oracle from the simulated engine's own receive log joined with the client event sequence instead of the gateway's own completion summary, kept client, gateway and engine request IDs connected, and retained every attempt."
+      ]
+    },
+    {
+      "id": "gpu-qualification",
+      "title": "Historical vLLM gateway qualification on a shared RTX 4090",
+      "period": "Sep 2026",
+      "tracks": [
+        "ml_infra/inference_serving",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "vLLM",
+        "Qwen2.5-0.5B",
+        "Go",
+        "Python"
+      ],
+      "summary": "Archived GPU qualification rounds of the gateway on one shared RTX 4090 (vLLM 0.28.0 V1 eager, Qwen2.5-0.5B FP16, 128 in/64 out): 36 load cells of 48 attempts (1,728 attempts) and ten backend faults, kept as their own records apart from the CPU lifecycle runs.",
+      "bullets": [
+        "Kept the archived GPU qualification rounds of the gateway on one shared RTX 4090 (vLLM 0.28.0 V1 eager, Qwen2.5-0.5B FP16, 128 in/64 out) as their own records: 36 load cells of 48 attempts (1,728 attempts) and ten backend faults."
+      ]
+    }
+  ]
+}

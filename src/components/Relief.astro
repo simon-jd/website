@@ -1,0 +1,93 @@
+---
+// The botanical relief behind the top of the page, for Base's `art` slot: `hero` on the
+// home page, `corner` on article pages (mockup lines 47–50; phones 128–130). CSS picks
+// the day or night image and the 750 or 1440 width, so only the image in use downloads.
+// It sits at z-index -1, under all page content, and is decorative.
+import { reliefImage } from '../lib/relief.ts';
+
+interface Props {
+  variant: 'hero' | 'corner';
+}
+
+const { variant } = Astro.props;
+
+/** An `image-set()` of the AVIF and WebP versions of the relief for `theme` at `width`. */
+async function imageSet(theme: 'day' | 'night', width: 750 | 1440): Promise<string> {
+  const [avif, webp] = await Promise.all([reliefImage(theme, width, 'avif'), reliefImage(theme, width, 'webp')]);
+  return `image-set(url("${avif}") type("image/avif"), url("${webp}") type("image/webp"))`;
+}
+
+const [dayLarge, daySmall, nightLarge, nightSmall] = await Promise.all([
+  imageSet('day', 1440),
+  imageSet('day', 750),
+  imageSet('night', 1440),
+  imageSet('night', 750),
+]);
+const images = `--day-1440: ${dayLarge}; --day-750: ${daySmall}; --night-1440: ${nightLarge}; --night-750: ${nightSmall}`;
+---
+
+<div class:list={['relief', variant]} style={images} aria-hidden="true"></div>
+
+<style>
+  .relief {
+    --day: var(--day-1440);
+    --night: var(--night-1440);
+    position: absolute;
+    z-index: -1;
+    top: 0;
+    right: 0;
+    width: 60%;
+    height: 640px;
+    background: no-repeat right top / cover;
+    background-image: var(--day);
+    pointer-events: none;
+    /* Without a mask the image's hard edges would show, so it is only faded. */
+    opacity: 0.35;
+  }
+
+  .corner {
+    width: 46%;
+    height: 470px;
+  }
+
+  /* Base preloads the 750 AVIF for this same breakpoint. */
+  @media (width <= 640px) {
+    .relief {
+      --day: var(--day-750);
+      --night: var(--night-750);
+      width: 100%;
+      height: 340px;
+    }
+  }
+
+  :global(:root[data-theme='dark']) .relief {
+    background-image: var(--night);
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme='light'])) .relief {
+      background-image: var(--night);
+    }
+  }
+
+  @supports (mask-image: linear-gradient(#000, #000)) {
+    .relief {
+      opacity: 1;
+      mask-image:
+        linear-gradient(to right, transparent 0%, #000 44%), linear-gradient(to bottom, #000 52%, transparent 100%);
+      mask-composite: intersect;
+    }
+
+    .corner {
+      opacity: 0.75;
+    }
+
+    @media (width <= 640px) {
+      .relief {
+        opacity: 0.95;
+        mask-image:
+          linear-gradient(to right, transparent 0%, #000 62%), linear-gradient(to bottom, #000 38%, transparent 100%);
+      }
+    }
+  }
+</style>

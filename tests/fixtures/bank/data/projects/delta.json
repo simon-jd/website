@@ -1,0 +1,21 @@
+{
+  "id": "delta",
+  "header": {
+    "title": "Delta — Minimal Synthetic Project",
+    "date": "2026",
+    "repository": {
+      "github_url": "https://github.com/simon-jd/delta"
+    }
+  },
+  "workstreams": [
+    {
+      "id": "delta-main",
+      "title": "Synthetic main workstream",
+      "period": "2026",
+      "tracks": ["infra/distributed_systems"],
+      "tech_stack": ["Go"],
+      "summary": "A minimal synthetic workstream.",
+      "bullets": ["Handled 7 synthetic cases."]
+    }
+  ]
+}

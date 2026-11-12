@@ -1,0 +1,26 @@
+{
+  "id": "alpha",
+  "title": "Alpha — Synthetic Kernels",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/alpha",
+  "workstreams": [
+    {
+      "id": "ws-a",
+      "title": "Synthetic weight sync",
+      "period": "2026",
+      "tracks": ["ml_infra/comm_networking"],
+      "tech_stack": ["NCCL"],
+      "summary": "Synthetic sync: 1,478 → 25 collectives per push.",
+      "bullets": ["Synthetic bullet: 2.20 s per step."]
+    },
+    {
+      "id": "ws-b",
+      "title": "Synthetic tooling",
+      "period": "2026",
+      "tracks": ["ml_infra/perf_analysis"],
+      "tech_stack": ["Python"],
+      "summary": "Synthetic tooling: 3.14 ms per call.",
+      "bullets": ["Synthetic bullet: 42 runs."]
+    }
+  ]
+}

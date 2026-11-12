@@ -1,0 +1,51 @@
+---
+title: "Exactly once ends at the database"
+date: 2026-09-06
+type: essay
+tags: [distributed-systems, infra, correctness]
+summary: "Where a workflow engine’s exactly-once guarantee stops, and what it should promise about the calls beyond it."
+draft: false
+---
+
+<Sidenote>Everything here ran in a simulated cloud environment: two Go API instances at 4 vCPU each, MySQL 8.0 on 16 vCPU with 64 GiB and NVMe, two workers with 8 concurrency slots each, and three-stage simulated tasks at about 1 ms per stage. Heartbeat 10 s, lease 30 s, reaper cycle 15 s.</Sidenote>
+
+AsyncFlow is a durable workflow engine in Go. Upstream business changes in PostgreSQL reach it through logical decoding and Debezium/Kafka, but none of those messages decides anything. MySQL 8.0 holds the workflow instances, the leases and the stage results; a message only wakes the engine up. That split is what lets the engine say exactly which part of its work happens once.
+
+## Messages wake, the database decides
+
+The first version found new work with a polling scan every 180 s. Replacing it with Debezium/Kafka change data capture and a bounded merge queue that triggers within 5 s cut the median time from an upstream commit to the first dispatch from 90 s to 3 s, measured end to end for both schemes.
+
+<BarChart
+  label="Median time from upstream commit to first dispatch: 90 s with polling, 3 s with change data capture."
+  caption="Median time from an upstream commit to the first dispatch · simulated cloud environment"
+  rows={[
+    { label: '180 s polling scan', value: 90, unit: 's' },
+    { label: 'CDC + bounded merge queue', value: 3, unit: 's', highlight: true },
+  ]}
+/>
+
+The wake-up path got faster without being given any authority. What a workflow is, which worker holds it and what each stage produced are still rows in MySQL.
+
+## Once, inside one transaction
+
+A stage’s completion and its simulated side-effect record commit in the same MySQL transaction, under a unique action key, and an outbox wakes the consumers. Inside the database, then, a stage has either completed and recorded its effect or done neither, and the unique key keeps a second completion from recording the effect again.
+
+A claim like that is only worth what its fault tests are. The engine ran 50,000 seeded fault traces, 5,000 in each of 10 fault classes, and reconciliation through the transaction log found no duplicate simulated effects and no lost accepted instances. After a process crash, lease recovery was bounded at 45 s.
+
+## Past the database, say UNKNOWN
+
+The transaction ends at the database, and so does the guarantee. An external call that times out has not said whether it happened, so AsyncFlow records it as UNKNOWN instead of guessing. External effects get at-least-once attempts with a detectable unknown result, unless the downstream offers a stable idempotency key and a way to query the result, which lets an UNKNOWN be reconciled.
+
+So the guarantee is stated narrowly: “once” covers state transitions inside the database and the simulated effects recorded there. Effects outside it rely on the target’s idempotency and on reconciling UNKNOWN results.
+
+## Under load
+
+The fixed scenario sustained 700 successfully persisted new workflow starts per second for three 30-minute rounds, with API p99 of 113, 116 and 118 ms and error rates below 0.1%. Each round accepted about 1.26 million starts and was drained and reconciled at the end; the three-stage tasks needed about 2,100 stage executions per second.
+
+## What I took from it
+
+**Say where “once” ends.** A guarantee that names its boundary, one MySQL transaction, can be tested against a transaction log. One that does not can only be believed.
+
+**A timeout is not a failure.** Recording UNKNOWN keeps the engine honest about calls it cannot see the end of, and gives reconciliation something to work on.
+
+**Let messages wake, not decide.** Faster wake-ups cut dispatch latency from 90 s to 3 s without moving any state out of the database.

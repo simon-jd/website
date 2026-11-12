@@ -1,0 +1,35 @@
+{
+  "id": "gemm-lab-qualification",
+  "title": "Small-Batch FP16 GEMM Kernels — Triton, CuTe DSL and cuBLASLt on RTX 4090",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/gemm-lab-qualification",
+  "workstreams": [
+    {
+      "id": "gemm-numerics",
+      "title": "FP16 GEMM numerical gates and paired timing on RTX 4090",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/gpu_kernels",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "CUDA",
+        "Triton",
+        "CUTLASS CuTe DSL",
+        "cuBLASLt",
+        "PyTorch",
+        "Compute Sanitizer",
+        "Python",
+        "C++"
+      ],
+      "summary": "Single-GPU small-batch FP16 GEMM and bias+SiLU qualification on an RTX 4090 24 GB (sm_89, CUDA 13.2, C++17, Python 3.13, torch 2.13.0, Triton 3.7.1, CuTe DSL 4.6.1) with an independent CPU FP64 oracle, explicit fallbacks for unsupported CuTe layouts and bounded, failure-aware experiment execution; 76 GPU comparison records and 86 native CUDA tests are retained, including slower paths. At M=32, N=K=4096, timed with the B matrix resident in L2, the measured p50 was 18.0 μs for cuBLASLt, 20.7 μs for Triton and 18.5 μs for CuTe, so no cuBLASLt win is claimed.",
+      "bullets": [
+        "Benchmarked FP16 GEMMs against cuBLAS (cuBLASLt) at M=32, N=K=4096 on a single RTX 4090, timed back-to-back with the B matrix resident in L2: p50 was 18.0 μs for cuBLASLt, 18.5 μs for CuTe DSL and 20.7 μs for Triton, with fused bias/SiLU compared only against an equal-semantics GEMM+bias+SiLU baseline.",
+        "Timed FP16 GEMM and bias+SiLU linear fragments on a single RTX 4090 24 GB (sm_89; CUDA, Python, PyTorch, Triton and CuTe DSL) across M=1/8/32/128 with N=K=4096, running correctness and sanitizer checks before 20 warmups and 31 randomized AB/BA CUDA-event pairs with data resident on GPU; all 76 GPU comparison records and 86 native CUDA tests are retained, including the slower paths and fallbacks.",
+        "Built an independent numerical gate for M=32, N=K=4096 that shares no GPU dispatch path with the candidates: pre-quantized FP16 inputs, a full CPU FP64 output reference, 64 dots cross-checked with independent scalar accumulation, a tolerance of abs <= 0.02 + 0.002 x |reference|, and poison-padding plus output-canary checks; 8 additional boundary probes (zero M, zero K, tail N, tail K and 4 strided inputs) stayed separate from the historical 76 records.",
+        "Kept unsupported layouts explicit: the aligned CuTe path accepts only selected K/N alignment while strided and empty inputs take a reported explicit fallback, and the sm_89 path does not use TMA or WGMMA.",
+        "Hardened local experiment execution against hung and racing runs: a hung child that spawned a cooperative worker was terminated as a whole process group after timeout, leaving only a failure receipt; atomic run-directory admission let only one of two publishers claim a run ID; and a file-lock-based GPU lock covered the entire qualification stage."
+      ]
+    }
+  ]
+}

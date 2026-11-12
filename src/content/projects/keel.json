@@ -1,0 +1,154 @@
+{
+  "id": "keel",
+  "title": "Keel — LLM Agent Runtime and Evaluation: Prompt-Injection Guard on AgentDojo, MCP Servers with OAuth 2.0, LLM Judge Calibration, Hybrid RAG on BEIR, Langfuse Tracing with PII Redaction",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/Keel",
+  "workstreams": [
+    {
+      "id": "injection-guard",
+      "title": "Prompt-injection guard for tool-calling agents on all four AgentDojo suites: capability, frozen-plan, taint and value-level provenance policies",
+      "period": "Oct–Nov 2026",
+      "tracks": [
+        "mle/llm_applications",
+        "fde/agent_deployment"
+      ],
+      "tech_stack": [
+        "TypeScript",
+        "Python",
+        "AgentDojo",
+        "vLLM"
+      ],
+      "summary": "A TypeScript guard between the model and the tools of Keel's agent runtime, with policies compared on AgentDojo: capability (deny any tool outside the task's declared list), plan (tool set frozen before the first untrusted read), taint (after the first tool result every side-effecting call needs human approval; none is available in the benchmark, so the call is blocked), all (capability + plan + taint), provenance (string fields of eight or more words in tool results count as free text; a call is held when an argument carries an e-mail address, URL or domain, or IBAN-shaped string that appeared only in free text, not in structured values or the user's request; side-effecting calls also check bare tokens such as ids or passwords) and all-prov (provenance plus capability and plan checks on side-effecting tools only). Measured on AgentDojo v1.2.2, all 4 suites: 97 clean tasks and 949 user task × injection pairs under the important_instructions attack, agent Qwen3-8B-AWQ (an open-weight model served by vLLM 0.17.1 on one RTX 4090, temperature 0, seed 0), every policy on every case, through Python adapters that run the original AgentDojo pipeline, tools and scorers against the Keel backend. The capability and plan declarations are the tools of each task's ground-truth solution. provenance and all-prov run in the benchmark host used by the adapters; the production createGuard path applies capability, plan and taint checks with default human approval for writes. Counts are k/n with Wilson 95% intervals; 290 of 7,322 episodes failed (the backend's 128 KB message limit or the model's 32k-token context) and count as non-successes.",
+      "bullets": [
+        "Designed a value-level provenance policy for a TypeScript tool-call guard that holds a call when an argument carries an identifier (e-mail address, URL or domain, IBAN-shaped string) seen only in free-text tool output, and combined it with capability and plan checks on side-effecting tools (all-prov); on all 4 AgentDojo v1.2.2 suites (949 user task × injection pairs, important_instructions attack, Qwen3-8B-AWQ) targeted attack success fell from 147/949 (15.5%) undefended to 8/949 (0.8%, Wilson 0.4–1.7%), the same as capability + plan + taint combined.",
+        "Kept the legitimate work that capability + plan + taint loses: clean utility 29/97 for all-prov against 16/97 (33/97 undefended) and utility under attack 255/949 against 156/949 (256/949 undefended); the clean-utility intervals overlap at n = 97, the under-attack difference does not.",
+        "Developed the policies on the slack and travel suites only and held out banking and workspace (56 clean tasks, 704 pairs): all-prov allowed 0/704 attacks (Wilson 0.0–0.5%) against 45/704 (6.4%) undefended, with clean utility 17/56, the same as the undefended agent, and 210/704 under attack against 136/704 for capability + plan + taint.",
+        "Traced the utility loss of session taint to legitimate writes that follow a tool read (under taint, clean slack utility fell from 11/21 to 1/21), and the weakness of provenance alone, 30/949 attacks against 17/949 for taint, almost all in travel (24/140), where the injected hotel is also a legitimate structured value.",
+        "Bounded run-to-run noise with two more full runs of no defense, capability + plan + taint and all-prov (same task seed; only vLLM's batched decoding varies): the largest change in any cell was one clean task (≤1.8 points held out) and five attack episodes (≤0.6 points); counting the 290 of 7,322 failed episodes as attack successes, as AgentDojo's own harness scores context overflows, gives 188/949 (19.8%) undefended, 50/949 (5.3%) for capability + plan + taint and 51/949 (5.4%) for all-prov."
+      ]
+    },
+    {
+      "id": "durable-runtime-mcp",
+      "title": "Durable agent runtime on Postgres checkpoints and MCP servers for GitHub, Google, Slack and Salesforce with OAuth 2.0 + PKCE, argument-bound permits and journaled writes",
+      "period": "Oct 2026",
+      "tracks": [
+        "fde/integration",
+        "fde/agent_deployment",
+        "sde"
+      ],
+      "tech_stack": [
+        "TypeScript",
+        "Node.js",
+        "PostgreSQL",
+        "MCP",
+        "OAuth 2.0",
+        "JWT",
+        "Drizzle",
+        "Testcontainers",
+        "Docker"
+      ],
+      "summary": "TypeScript runtime for LLM agents that act on SaaS accounts. runAgent holds a Postgres advisory lock for the run, reserves model and tool budget before each call, validates a whole tool batch against its schemas before running any of it and checkpoints messages and results; a write cut off by a crash is marked UNKNOWN and completed only when a provider lookup proves it done or absent, never replayed blindly. A model router covers OpenAI, Anthropic and OpenAI-compatible (local vLLM) endpoints with per-call token and cost accounting. The GET-only http_fetch tool checks scheme, host, port and path against trusted rules, resolves every redirect hop and rejects private and metadata addresses. MCP servers on the official MCP TypeScript SDK over Streamable HTTP: GitHub (failing checks, issues through a GitHub App), Google (Gmail search and draft reply, Calendar free slots), Slack (message search and post) and Salesforce (a restricted SOQL subset, Case status update). They verify RS256 bearer tokens from an external authorization server, report missing scopes so the host can ask for incremental consent, keep OAuth 2.0 + PKCE tokens in an AES-GCM encrypted store, journal each write before dispatch and verify signed webhooks. Drizzle schema with numbered SQL migrations. Tested with the official MCP SDK client over loopback HTTP, a real Postgres (Testcontainers) and synthetic provider fixtures, not recordings; no real SaaS account was used.",
+      "bullets": [
+        "Built a durable TypeScript agent loop that holds a Postgres advisory lock per run, reserves model and tool budget before each call, validates a whole tool batch against its schemas before running any of it and checkpoints messages and results; a write cut off by a crash stays UNKNOWN until a provider lookup proves it done or absent, and is never replayed blindly.",
+        "Wrote MCP servers on the official MCP TypeScript SDK over Streamable HTTP for GitHub (failing checks, issues through a GitHub App), Google (Gmail search and draft reply, Calendar free slots), Slack (message search and post) and Salesforce (a restricted SOQL subset, Case status update), which verify RS256 bearer tokens from an external authorization server and report missing scopes for incremental consent; tested with the official SDK client over loopback HTTP, a real Postgres and synthetic provider fixtures.",
+        "Gated every write with a signed 60-second permit bound to tenant, run, tool, action key and argument hash, so model text cannot mint approval, and recorded each write in an AES-GCM encrypted action journal before dispatch, so a lost provider response is reconciled by lookup without a duplicate write.",
+        "Kept OAuth 2.0 + PKCE tokens encrypted at rest and out of model arguments, with at most one credential refresh after a 401 and no generic retry for writes or token exchanges; verified Slack v0 and GitHub SHA-256 webhook HMACs on raw bytes before JSON parsing; and made the GET-only http_fetch tool resolve every redirect hop and reject private and metadata addresses.",
+        "Fixed a recovery bug in which, after a GitHub App change, an issue carrying a copied correlation marker from the new App could be accepted as the original write: the App, installation and API identity are frozen in the encrypted journal before dispatch, and a write without matching writer evidence stays UNKNOWN; three regressions over the real MCP SDK, Streamable HTTP, Postgres and a synthetic GitHub fixture failed before the fix and pass after it."
+      ]
+    },
+    {
+      "id": "judge-calibration",
+      "title": "LLM judge calibration against the BFCL checker, human labels and RAGTruth, with the selection rule fixed before the candidate runs",
+      "period": "Oct–Nov 2026",
+      "tracks": [
+        "mle/llm_applications",
+        "fde/agent_deployment"
+      ],
+      "tech_stack": [
+        "Python",
+        "TypeScript",
+        "vLLM",
+        "BFCL"
+      ],
+      "summary": "Judge prompts and agreement metrics in Keel's evals package. Six candidate configurations of Qwen3-14B-AWQ (thinking or non-thinking × prompts v1, v2 and a new strict v3) against the earlier Qwen2.5-14B-Instruct-AWQ judge, open-weight models served by vLLM 0.17.1 on one RTX 4090, temperature 0, seed 0. Positive class is fail; κ with a bootstrap 95% interval, proportions with Wilson 95% intervals, and an invalid verdict counted as wrong. Reference sets: 400 balanced BFCL outputs (200 checker pass, 200 checker fail, 4 categories) graded by the official BFCL AST checker, not a person; 300 BFCL actions on the same rubric labelled by one person (277 pass / 23 fail), 100 of them labelled again by a second person; 320 items from the RAGTruth QA test split (160 with human-marked unsupported content, 160 clean) for the grounding judge. The candidates, the v3 prompt text, the metrics and the selection rule were written and committed before the candidate model was first served; the human labels and RAGTruth are reported, not used to select.",
+      "bullets": [
+        "Fixed a judge selection rule before any candidate run (highest κ against the official BFCL AST checker on 400 balanced outputs; replace the current judge only at κ ≥ 0.290 and fail precision ≥ 0.80) and selected Qwen3-14B-AWQ with thinking and a strict prompt from 6 configurations: κ 0.595 (bootstrap 95% 0.518–0.670), agreement 319/400, fail precision 126/133 and fail recall 126/200, against κ 0.240, 248/400, 53/58 and 53/200 for the earlier Qwen2.5-14B-Instruct-AWQ judge.",
+        "Showed that thinking mode decided the result: the same Qwen3-14B-AWQ checkpoint without thinking reached κ 0.355 / 0.390 / 0.345 for prompts v1 / v2 / v3 with fail precision 0.73–0.79, under the 0.80 bar, and with thinking 0.550 / 0.575 / 0.595 with precision ≥ 0.95, at about 3.5× the output tokens (215k vs 59k per 700 verdicts).",
+        "Checked the selected judge against human labels on the same rubric: on 300 BFCL actions labelled by one person (277 pass / 23 fail) it reached κ 0.396 (bootstrap 95% 0.169–0.605), agreement 281/300, fail precision 7/10 and fail recall 7/23, well below two people's agreement on 100 of the items (99/100, κ 0.918), and missed 6 of 7 actions that fill in a value the request never gave.",
+        "Validated the same judge as a RAG grounding judge on 320 RAGTruth QA test items (160 with human-marked unsupported content): κ 0.406 (0.310–0.502), agreement 225/320, fail precision 84/103 and fail recall 84/160, against κ 0.163 and fail recall 63/160 for the earlier judge; it still passes 76 of the 160 answers annotators marked as unsupported, so it does not gate anything on its own."
+      ]
+    },
+    {
+      "id": "hybrid-rag-retrieval",
+      "title": "Hybrid BM25 + dense retrieval with LLM reranking, matched to Pyserini on three BEIR datasets, and a Kubernetes-docs faithfulness evaluation",
+      "period": "Oct 2026",
+      "tracks": [
+        "mle/llm_applications",
+        "fde/agent_deployment",
+        "mle/applied_ml"
+      ],
+      "tech_stack": [
+        "TypeScript",
+        "PostgreSQL",
+        "pgvector",
+        "vLLM",
+        "BEIR"
+      ],
+      "summary": "Keel's RAG package: ingestion of a pinned subset of the Kubernetes docs (22 concept pages, 491 chunks) into pgvector; Okapi BM25 (k1 = 0.9, b = 0.4) over a Lucene-style English analyzer; dense retrieval with bge-base-en-v1.5 served by vLLM 0.17.1 in pooling mode with exact cosine search (no ANN index); reciprocal rank fusion (k = 60) of the BM25 and dense top 100; reranking with the bge-reranker-base cross-encoder over the hybrid top 100 or an LLM relevance prompt (Qwen3-8B-AWQ, temperature 0) over the hybrid top 20; an answer step and an LLM grounding judge. Evaluated on the BEIR SciFact, NFCorpus and FiQA-2018 test splits (nDCG@10 and Recall@100 as in BEIR/pytrec_eval) against Pyserini's published runs, and on 200 Kubernetes questions whose questions and gold chunks were written by an LLM, answered by Qwen3-8B-AWQ and graded by the Qwen3-14B-AWQ judge. All models are open-weight, served by vLLM on one RTX 4090.",
+      "bullets": [
+        "Implemented Okapi BM25 (k1 = 0.9, b = 0.4) with a Lucene-style English analyzer and dense retrieval with bge-base-en-v1.5 served by vLLM, and matched published baselines on the BEIR SciFact, NFCorpus and FiQA-2018 test splits: BM25 within 0.002 nDCG@10 of Pyserini's BM25-flat (0.6780 / 0.3204 / 0.2343 vs 0.6789 / 0.3218 / 0.2361), and dense within 0.0021 of Pyserini's published bge-base-en-v1.5 run.",
+        "Compared rerankers on hybrid RRF (k = 60) candidates: an LLM relevance rerank of the top 20 with Qwen3-8B-AWQ added 0.013 / 0.006 / 0.029 nDCG@10 over hybrid (0.7477 / 0.3770 / 0.3947) at 20 chat calls per query, while the bge-reranker-base cross-encoder over the top 100 lowered it on all three datasets (0.7171 / 0.3169 / 0.3283), so it is not the default.",
+        "Found that the earlier lexical retriever used Postgres plainto_tsquery, which ANDs every query term, so only 5 of 200 Kubernetes questions had any chunk containing all their terms and the lexical list was almost always empty; with BM25 + dense RRF the gold chunk was in the top 10 for 196/200 questions against 44/200 for the earlier pipeline.",
+        "Measured RAG faithfulness on 200 LLM-written Kubernetes questions over 491 chunks of 22 concept pages, with Qwen3-8B-AWQ answers graded by the Qwen3-14B-AWQ judge: 198/200 before the top-20 LLM rerank and 199/200 after (paired: 0 improved, 0 degraded, 199 tied), against 156/200 and 158/200 for the earlier pipeline's stored answers under the same judge."
+      ]
+    },
+    {
+      "id": "routing-gate-benchmarks",
+      "title": "Cheap-first model routing on BFCL, a scorer fix that matched the public leaderboard, a benchmark regression gate, and τ²-bench",
+      "period": "Oct 2026",
+      "tracks": [
+        "mle/llm_applications",
+        "ml_infra/inference_serving"
+      ],
+      "tech_stack": [
+        "Python",
+        "TypeScript",
+        "vLLM",
+        "BFCL",
+        "τ²-bench"
+      ],
+      "summary": "Python adapters that run unchanged BFCL, AgentDojo and τ²-bench tasks and scorers against Keel's HTTP backend and model router. Routing was measured on BFCL v4 simple_python, all 400 tasks, seed 0, temperature 0, with the cheap Qwen2.5-0.5B-Instruct and the strong Qwen3-8B-AWQ (thinking off), open-weight models served by vLLM 0.17.1 on one RTX 4090, one request at a time; cost is GPU-seconds summed over call latencies, and cheap-first is replayed from the two runs. A schema verifier decides escalation from what the model saw (tool schemas and the cheap output: known function, JSON arguments, required and unknown parameters, types, enums), never the answer key. The regression gate (make gate) compares a candidate report with the baseline and fails a change whose benchmark success drops; the repository's eval-gate workflow is written to compare committed reports, with no model access, and the evidence is the same check run locally. τ²-bench: airline, retail and telecom, 50 tasks × 3 seeds each, with the agent model also serving as user simulator and judge.",
+      "bullets": [
+        "Measured cheap-first model routing on all 400 BFCL v4 simple_python tasks with Qwen2.5-0.5B-Instruct as the cheap model and Qwen3-8B-AWQ as the strong one (cost = GPU-seconds summed over calls): cheap only 304/400 at 72.9 GPU-s, cheap first with escalation of calls a schema verifier rejects 315/400 at 77.3 GPU-s (12 escalated), strong only 381/400 at 143.2 GPU-s; an oracle escalation, not deployable, would reach 387/400 at 107.9 GPU-s.",
+        "Showed why the schema verifier escalates so little: of the cheap model's 96 wrong answers it rejected 12 and accepted 84, because most errors are wrong values inside schema-valid calls (value_error:string 31, missing_optional 31); the verifier sees only the tool schemas and the cheap output, never the answer key.",
+        "Found a scorer bug in the BFCL adapter, which registered its model config without underscore_to_dot, so correct calls to dotted functions such as math.factorial scored wrong_func_name; rescoring the stored Qwen3-8B-AWQ outputs moved 224/400 to 381/400 (157 verdicts changed), confirmed by a fresh run, against 95.50% for Qwen3-8B (FC) on the public leaderboard's Python Simple AST.",
+        "Drilled the benchmark regression gate with a candidate change that blanks every tool and parameter description: 323/400 against the 381/400 baseline, and make gate fails it with SUCCESS_DROP_EXCEEDS_2PP while passing the unchanged control.",
+        "Ran τ²-bench airline, retail and telecom (50 tasks × 3 seeds each) through the same adapters with Qwen3-8B-AWQ: 37/450 (8.22%), airline 21/150, retail 16/150, telecom 0/150, with failed jobs kept in the denominator; most retail and telecom failures were malformed JSON (43 and 105 jobs)."
+      ]
+    },
+    {
+      "id": "tracing-pii",
+      "title": "OpenTelemetry GenAI tracing into self-hosted Langfuse through a Presidio PII sidecar, verified end to end with planted canaries",
+      "period": "Oct 2026",
+      "tracks": [
+        "sre",
+        "fde/agent_deployment"
+      ],
+      "tech_stack": [
+        "TypeScript",
+        "OpenTelemetry",
+        "Langfuse",
+        "Presidio",
+        "Python",
+        "Docker Compose"
+      ],
+      "summary": "Keel's tracing package emits OpenTelemetry GenAI spans for LLM, tool and retrieval calls. Every exported span is projected onto an attribute whitelist, its string metadata goes through a Presidio sidecar, and the result is projected again before OTLP export to an OpenTelemetry Collector and Langfuse; if the sidecar fails (200 ms deadline), the batch's string attributes are dropped rather than sent unredacted. The sidecar recognizes English e-mail addresses and US phone numbers only, with no NER model or credential detector. Measured on the full local Docker Compose stack (Langfuse 4.69.0 with ClickHouse, Postgres, MinIO and Redis) with 30 agent runs of Qwen3-8B-AWQ, an open-weight model served by vLLM 0.17.1 on one RTX 4090, and the stack removed with its volumes afterwards; stage overhead measured on 16-span metadata batches through the real sidecar over loopback HTTP. Runs have no root span, so each span is its own Langfuse trace, grouped by the keel.run_id attribute.",
+      "bullets": [
+        "Exported OpenTelemetry GenAI spans for LLM, tool and retrieval calls through an attribute whitelist, a Presidio PII sidecar and a second whitelist pass before OTLP export to a collector and self-hosted Langfuse 4.69.0; across 30 agent runs with Qwen3-8B-AWQ on the full local Docker Compose stack, spans sent / acknowledged by the collector / stored / returned by the Langfuse API were 180 / 180 / 180 / 180, with storage p50 119 ms and p95 193 ms after the collector acknowledgement.",
+        "Verified redaction end to end with 150 synthetic PII canaries planted in task text, tool results and a whitelisted attribute: 0 found in 72 Langfuse storage objects (ClickHouse tables, Postgres dump, MinIO, Redis, logs, API responses), while the same scan found 120 hits in Keel's own run database, showing the scan works.",
+        "Made the PII stage fail closed, dropping a batch's string attributes rather than sending them unredacted when the sidecar fails or misses its 200 ms deadline; on 16-span batches over loopback HTTP (10 warm-up and 100 measured pairs, alternating with and without the stage) it added p50 1.55 ms and p95 2.26 ms per batch, with 1,600/1,600 spans exported.",
+        "Reconciled per-run cost across the trace pipeline: in 30/30 runs the runtime's known cost equalled the sum of exported keel.cost_usd attributes and the sum stored in Langfuse (test prices on local models; real spend $0)."
+      ]
+    }
+  ]
+}

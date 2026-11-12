@@ -1,0 +1,68 @@
+---
+dek: "vLLM 0.31 has no FP8 tensor-core kernel for block-scaled checkpoints on Ada, so I wrote one: Qwen3-8B-FP8 prefill 1.74× faster than stock vLLM on an RTX 4090."
+draft: false
+---
+
+<Sidenote>One RTX 4090 (sm_89). Kernel timings use the linear-layer shapes of Qwen3-8B-FP8 with synthetic random operands, weights cold in L2, median of 10 interleaved runs from CUPTI kernel spans. End-to-end numbers use vLLM 0.31, median of 5 interleaved runs, one process each.</Sidenote>
+
+Block-scaled FP8 checkpoints such as Qwen3-8B-FP8 carry one weight scale per 128×128 block. vLLM 0.31’s own kernel selector shows that it has no FP8 tensor-core kernel for that format on Ada: its CUTLASS block-FP8 kernel is Hopper and Blackwell only. On an RTX 4090 it picks Marlin, which dequantizes the FP8 weights to bf16, so the model runs W8A16 instead of W8A8. blockfp8 is a block-scaled FP8 GEMM for Ada and a vLLM plugin that places it ahead of Marlin in vLLM’s block-FP8 kernel list.
+
+## The kernel
+
+The kernel is written with CuTe from CUTLASS v4.8.1. Weights are e4m3 with one scale per 128×128 block, and activations are quantized in 1×128 groups. It issues `mma.sync.m16n8k32` on e4m3 with FP32 accumulation, feeds it through a cp.async multi-stage pipeline into swizzled shared memory and ldmatrix, applies the block scales once per 128-wide K block, and picks a plan per shape from a table built by an autotuning sweep.
+
+On Qwen3-8B-FP8’s layer shapes it reached 305–330 TFLOPS at prefill (M = 1024–8192), against a measured MMA peak of 367 TFLOPS, and streamed 862–933 GB/s of weights at decode (M = 1–32), against a 957 GB/s DRAM read peak.
+
+## Precision is a design choice
+
+Before choosing where to apply the scales, I measured the FP8 MMA itself: microbenchmarks show it keeps 13 bits below the largest addend and truncates the rest. Accumulating the whole K range in the MMA accumulator therefore costs accuracy, so the kernel promotes to FP32 once per 128-wide block. On random operands at K = 4096, the median relative error is 1.37e-4, 10 times below the 1.37e-3 median error of bf16 output rounding, against 9.8e-4 for whole-K accumulation. On down at M = 8192, the relative Frobenius error of 1.669e-3 equals that of vLLM’s Triton kernel.
+
+## Closing the gaps by measurement
+
+The first version lost to tuned Triton and to Marlin in places, and each loss had a measurable cause. Activation scales loaded with `__ldg` stalled the weight stream by up to 18% at M = 16; staging each K tile’s scales into shared memory with one 4-byte cp.async removed the stall. The first plan table, timed with CUDA events on cold activations, picked plans up to 21% slower than the best compiled one (qkv at M = 512: 109.8 against 90.8 μs), so the table was retuned in the benchmark’s own harness.
+
+Split-K is where determinism usually goes. Here each split writes an FP32 partial, and the last CTA to arrive, found with an atomic counter, sums them in fixed split order, all in one launch. Between tabulated batch sizes, the plan that leaves the least work on the busiest SM wins: on down at M = 768 it runs 3 CTAs per SM in 248.3 μs instead of 319.7 μs.
+
+Not every idea survived. A fused activation-quantization GEMM, once the scale loads stopped stalling, lost to a separate quantization kernel plus GEMM on every tuned shape, by 0.2–1.1 μs at M = 1–16 on qkv, o and down. The shipped path runs the separate kernel, which is bitwise equal to vLLM’s `per_token_group_quant_fp8`.
+
+Against vLLM’s Triton block-FP8 kernel tuned for the same GPU, the result is 1.06× faster on qkv at M = 8192 (1271.3 against 1346.6 μs) and 1.00–1.19× at M = 64–512. cuBLASLt FP8 with one scale per tensor, which is coarser scaling with no per-block promotion, stays up to 12% faster at M = 64–512 and 4–9% faster at prefill.
+
+## Into vLLM
+
+The plugin is a `vllm.general_plugins` entry point that inserts the kernel right before Marlin in vLLM’s block-FP8 kernel list. It claims only sm_89, bf16, 128×128 weight blocks and dynamic 1×128 activation groups, so every other GPU and layer keeps vLLM’s choice. The list is private to vLLM 0.31, so a test checks it.
+
+End to end, Qwen3-8B-FP8 prefill rose from 10,211 to 17,778 tok/s for 16 prompts of 1,024 tokens, 1.74× faster, and 1.75× and 1.66× at 256 and 4,096 tokens.
+
+<BarChart
+  label="Qwen3-8B-FP8 prefill in vLLM 0.31 for 16 prompts of 1,024 tokens: stock Marlin path 10,211 tok/s, blockfp8 17,778 tok/s."
+  caption="Qwen3-8B-FP8 prefill in vLLM 0.31, 16 prompts of 1,024 tokens, one RTX 4090 · median of 5 runs"
+  rows={[
+    { label: 'stock vLLM · Marlin W8A16', value: 10211, unit: 'tok/s' },
+    { label: 'blockfp8 · W8A8', value: 17778, unit: 'tok/s', highlight: true },
+  ]}
+/>
+
+Decode gains less, because the linear layers are a weight stream for both kernels: TPOT fell from 10.10 to 9.87 ms at batch 1 and from 14.07 to 12.64 ms at batch 64.
+
+<BarChart
+  label="Decode TPOT: at batch 1, stock 10.10 ms and blockfp8 9.87 ms; at batch 64, stock 14.07 ms and blockfp8 12.64 ms."
+  caption="Qwen3-8B-FP8 decode TPOT in vLLM 0.31, one RTX 4090 · median of 5 runs"
+  rows={[
+    { label: 'batch 1 · stock', value: '10.10', unit: 'ms' },
+    { label: 'batch 1 · blockfp8', value: 9.87, unit: 'ms', highlight: true },
+    { label: 'batch 64 · stock', value: 14.07, unit: 'ms' },
+    { label: 'batch 64 · blockfp8', value: 12.64, unit: 'ms', highlight: true },
+  ]}
+/>
+
+Perplexity, the quality measure used here, held. On wikitext-2-raw-v1 (298,931 scored tokens), perplexity was 9.7735 against 9.7646 for stock vLLM, +0.09%, level with vLLM’s own W8A8 Triton path at 9.7739. Greedy outputs on 24 chat prompts matched stock on 10 of 24, as did the W8A8 path’s, and repeated stock runs themselves differed from the first on 2 to 8 prompts.
+
+## What I learned
+
+**Check what the framework actually runs.** The kernel selector, not the checkpoint’s format, decided that this model ran W8A16.
+
+**Measure the hardware’s arithmetic before trusting it.** Knowing the MMA keeps 13 bits below the largest addend is why the kernel promotes once per 128-wide K block instead of accumulating the whole K range.
+
+**Determinism and speed can share a launch.** A fixed-order reduction by the last CTA to arrive kept split-K deterministic without a second kernel.
+
+**Prefill is where FP8 pays on this GPU.** Prefill ran 1.74× faster; decode, a weight stream either way, gained 2–4% end to end at batch 1–16.

@@ -1,0 +1,10 @@
+---
+title: "Infrastructure, data & backend"
+kicker: "focus"
+summary: "Networks, Linux systems software, schedulers and data pipelines: failover, buffer ownership, fenced leases and replicated state."
+projects: [pathwatch, pcie-dma-driver-lab, io-uring-coroutine-runtime, remex, quorum-market, velaserve, sponsoratlas, adpulse]
+tags: [infra, distributed-systems]
+draft: false
+---
+
+Not all of my systems work runs on a GPU. These projects are networks, Linux systems software, schedulers and data pipelines, where state has to stay right through failover, crashes and restarts. PathWatch cut median route failover on a hybrid WireGuard and eBGP link from 172.456 s with 60/180 s BGP timers to 1.201 s with BFD. The PCIe DMA driver lab keeps buffer ownership straight through cancel, reset, FLR and hot-unplug, and the io_uring runtime’s RESP server needs 3–8% less server CPU per GET than epoll at one core and pipeline depth 1. remex schedules Bazel remote execution with fenced leases for its C++ workers and a PostgreSQL group-commit ledger, and Quorum Market, VelaServe, SponsorAtlas and AdPulse cover replicated state, cloud deployment and data pipelines.

@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 150">
+  <rect x="14" y="44" width="66" height="72" rx="3"/>
+  <rect x="21" y="52" width="52" height="16" fill="url(#hatch-accent)"/>
+  <path d="M21 78 H73 M21 86 H63 M21 94 H69 M21 102 H57"/>
+  <rect x="160" y="44" width="66" height="72" rx="3"/>
+  <rect x="167" y="52" width="52" height="16" fill="url(#hatch-accent)"/>
+  <path d="M167 78 H219 M167 86 H209 M167 94 H215 M167 102 H203"/>
+  <path d="M80 80 H158" stroke-dasharray="2 3"/>
+  <rect x="87" y="73" width="11" height="14" fill="url(#hatch-accent)"/>
+  <rect x="102" y="73" width="11" height="14" fill="url(#hatch-accent)"/>
+  <rect x="117" y="73" width="11" height="14" fill="url(#hatch-accent)"/>
+  <rect x="132" y="73" width="11" height="14" fill="url(#hatch-accent)"/>
+  <path d="M151 75 L158 80 L151 85"/>
+  <path d="M47 44 V26 M122 73 V26 M193 44 V26" stroke-width=".7"/>
+  <text x="47" y="19">i</text><text x="122" y="19">ii</text><text x="193" y="19">iii</text>
+</svg>

@@ -1,0 +1,87 @@
+{
+  "id": "kvsnap",
+  "title": "kvsnap — Session KV-Cache Snapshots for vLLM: Out-of-Tree KV Connector, Triton Restore Kernel, Tensor-Parallel Shards and Crash-Safe SQLite Snapshot Store",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/kvsnap",
+  "workstreams": [
+    {
+      "id": "kv-connector-restore",
+      "title": "KV connector and pinned-memory restore path for vLLM 0.31.0 on one RTX 4090",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/inference_engine",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "vLLM",
+        "Python",
+        "Triton",
+        "PyTorch",
+        "CUDA",
+        "C++",
+        "LMCache"
+      ],
+      "summary": "Out-of-tree vLLM 0.31.0 KV connector (KVConnectorBase_V1; vLLM unmodified) that saves a chat session's KV cache as a named snapshot when a turn ends, in pinned host memory or on disk, and restores it so the next turn prefills only the new tokens. Measured on one RTX 4090 (24 GB, PCIe 4.0 x16) with Qwen3-8B and Qwen3-1.7B on synthetic random-token sessions, 3 runs per configuration, against recompute, vLLM's prefix cache and CPU offloading, and LMCache 0.5.6.",
+      "bullets": [
+        "Built a vLLM 0.31.0 KV connector (KVConnectorBase_V1) that reports a session snapshot as an external cache hit loaded asynchronously, so vLLM parks the request while a loader thread copies the blocks and the batch keeps running; on one RTX 4090 an 8k-token Qwen3-8B turn 2 took 115 ms from host memory against 897 ms to recompute (median TTFT over 3 runs).",
+        "Wrote a Triton restore kernel on 12 of the GPU's 128 SMs that reads each (layer, block) span from pinned host memory over PCIe and writes it into place in vLLM's scattered KV blocks: 22.9 GB/s on 1.2 GB shaped like Qwen3-8B whatever the block order, against 19.5 GB/s for one contiguous DMA copy, 17.5 GB/s for the previous DMA-plus-scatter path and 13.1 GB/s for 2D copies on shuffled block ids.",
+        "Kept running requests moving during resumes (Qwen3-1.7B, 16 decode streams, 54 resumes per run, 3 runs): the async load held the p99 decode gap during resumes to 23–26 ms against 78–129 ms for a synchronous load inside start_load_kv, at a cost of about one engine step of TTFT (median 11 ms above the synchronous load's).",
+        "Checked restores for exactness with a negative control: with batch-invariant kernels all 9 Qwen3-8B and all 18 Qwen3-1.7B restores matched recompute's logprobs bit for bit (one run per model), while flipping one head's key vector for one token in each disk snapshot made all 12 disk restores' logprobs differ although 11 of 12 kept the same greedy tokens.",
+        "Reported where it loses: with four 8k sessions rotating through GPU memory, LMCache's CPU backend restored a Qwen3-8B session in 83 ms against kvsnap's 109 ms, and under load it resumed 39 ms sooner, at a p99 decode gap of 57–60 ms during resumes; with vLLM's default kernels only 160 of 180 Qwen3-8B restores reproduced recompute's 16 greedy tokens."
+      ]
+    },
+    {
+      "id": "durable-snapshot-store",
+      "title": "Crash-safe snapshot store, session gateway and turn-end stall removal",
+      "period": "2026",
+      "tracks": [
+        "infra/distributed_systems",
+        "ml_infra/inference_serving"
+      ],
+      "tech_stack": [
+        "Python",
+        "SQLite",
+        "C++",
+        "CUDA",
+        "vLLM",
+        "pytest"
+      ],
+      "summary": "The store and session API behind the snapshots: content-addressed SHA-256 blocks checked with CRC32C on every disk read, fdatasync'd blob files behind an SQLite WAL manifest, per-session generation numbers that fence stale writers, and leases that keep GC and host-tier eviction away from blocks being read, plus a gateway that creates, resumes, pauses and forks sessions. Measured on one RTX 4090 host (i9-13900K, Samsung 980 PRO NVMe) with Qwen3-8B and Qwen3-1.7B, including resume after an engine restart, traced turn ends and a 500-session store stress test.",
+      "bullets": [
+        "Made sessions resumable across an engine restart: disk snapshots are fdatasync'd, checksummed, content-addressed blocks behind an SQLite WAL manifest, and a restarted Qwen3-8B engine resumed an 8k-token session in 212 ms from a warm page cache (559 ms with it dropped) against 881 ms to recompute; LMCache 0.5.6's local-disk backend kept its 7.5 GB of files but recovered nothing (955 ms, 0 cached prompt tokens on all 24 resumes).",
+        "Fenced stale writers with a per-session generation number in SQLite, so a stale gateway or a late save from a superseded turn cannot overwrite a newer snapshot; restores take a lease that keeps GC and host-tier eviction away while blobs are read, and generation claims are fsync'd only for turns that save to disk.",
+        "Removed turn-end stalls found by tracing an earlier design that committed each save inside the engine step (one step took 71–114 ms at every turn end): saves now publish from an ordered commit thread, store reads take no writer lock, store calls left the gateway's event loop, and gc.freeze() removed a 157 ms full collection; in a trace of the current save path the event loop never stopped for more than 42 ms.",
+        "Fixed store scaling at 500 sessions, where every invalidation rebuilt every reference count with an unindexed query inside a synchronous=FULL transaction and reads shared the writer's connection: invalidating a host-memory snapshot went from 40.7 s to 0.9 ms, a disk snapshot from 38.6 s to 10.0 ms, and a manifest lookup during a concurrent commit from 42.5 ms to 3.0 ms (worst of 10 s).",
+        "Tested crash safety by SIGKILLing a real writer process at eight boundaries of a store commit (after D2H, during the blob write, before fdatasync, after rename, before and after the manifest commit, before GPU release, during H2D); recover() rejected every interrupted snapshot and kept every committed one, with store-level failpoints rather than power loss or interrupted CUDA copies.",
+        "Kept the remaining costs in view: pause takes about 2.2 s for a durable 8k-token Qwen3-8B disk snapshot, saves rehash every block to deduplicate, and 6 of 54 traced turn ends still had engine steps of 22–44 ms against about 7 ms for a normal step."
+      ]
+    },
+    {
+      "id": "tensor-parallel-snapshots",
+      "title": "Tensor-parallel (TP=2) snapshots, measured on two A10-24Q vGPUs",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/inference_engine",
+        "infra/distributed_systems"
+      ],
+      "tech_stack": [
+        "vLLM",
+        "Python",
+        "PyTorch",
+        "CUDA",
+        "NCCL",
+        "SQLite",
+        "Snowflake ML Jobs",
+        "pytest"
+      ],
+      "summary": "Extended the connector, which refused any TP size but 1, to tensor parallelism: at TP=2 each rank's worker saves and restores its own shard of the KV cache under one snapshot name, the manifest is committed only once every rank has prepared its shard, and the TP size is part of the KV identity. Measured with Qwen3-8B on two NVIDIA A10-24Q vGPUs (sm_86) in one node of a Snowflake trial compute pool, driver 570 with the CUDA 13.2 forward-compatibility driver, with no NVLink or peer access, against recompute and a TP=1 reference on one of the two vGPUs; each cell pools 3 runs of 5 sessions.",
+      "bullets": [
+        "Made snapshots tensor-parallel: each rank's worker saves and restores its own KV shard (Qwen3-8B's 8 KV heads split 4 and 4, so an 8k-token snapshot is two 0.6 GB shards under one name), the manifest lists each rank's segments and the scheduler commits it only once both ranks have prepared their shard, and a restore's lease is held until both ranks have read theirs.",
+        "Put the TP size into the KV identity so a snapshot never loads into the wrong layout: a manifest with a shard missing is never loaded, and when a TP=2 store was restarted at TP=1 all 3 resumes missed with IdentityMismatch, nothing was loaded, turn 2 was recomputed and each resumed turn's own save was refused.",
+        "Measured on two A10-24Q vGPUs in one Snowflake node, where vLLM's custom all-reduce is off and NCCL's goes through host shared memory: an 8k-token Qwen3-8B session restored from host memory in 109 ms against 3,144 ms to recompute at TP=2, 29 times faster, and in 113 ms against 1,982 ms at TP=1 on one of the vGPUs; the two ranks copy their 0.6 GB shards in 27 ms, against 50 ms for the whole 1.2 GB at TP=1.",
+        "Resumed sessions after a TP=2 engine restart: 8k restores took 226 ms with a warm page cache against 3,114 ms to recompute on the new engine; with the page cache dropped the median was 2,120 ms and 2 of 6 took longer than recomputing (3,541 and 3,571 ms against 3,112 and 3,101 ms), and 20 of the 24 restores produced recompute's tokens.",
+        "Kept the losses: recompute is slower at TP=2 than on one vGPU (3,144 against 1,982 ms at 8k); host restores gain 4 ms at 8k and lose 6 ms at 2k (67 against 61 ms) because the suffix prefill and admission take longer; a durable 8k pause takes 7.9 s on the node's container disk; with the default kernels 80 of 90 TP=2 restores produced recompute's greedy tokens (81 of 90 at TP=1); and with NCCL_SHM_USE_CUDA_MEMCPY=1 the TP=2 engine printed nothing for 20 minutes and was killed, undiagnosed."
+      ]
+    }
+  ]
+}

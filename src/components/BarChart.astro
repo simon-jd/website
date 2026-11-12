@@ -1,0 +1,135 @@
+---
+// A single-series bar chart, drawn to scale from zero (spec §4, Art; mockup lines
+// 113–120 and 361–376). The bars are HTML rather than SVG so the labels never shrink with
+// the chart. The highlighted bar is solid accent and the others are hatched, so color is
+// never the only cue. On phones each label sits above its bar.
+import { barRows, type BarInput } from '../lib/bars.ts';
+
+interface Props {
+  /** A value is a number, or a string to print exactly as written (see BarInput). */
+  rows: BarInput[];
+  /** Shown under the chart. */
+  caption: string;
+  /** The table's accessible name. */
+  label: string;
+}
+
+const { rows, caption, label } = Astro.props;
+const bars = barRows(rows);
+---
+
+<figure class="bar-chart">
+  <table aria-label={label}>
+    <tbody>
+      {
+        bars.map((bar) => (
+          <tr class:list={{ hi: bar.highlight }}>
+            <th scope="row">{bar.label}</th>
+            <td class="track">
+              <span class="bar" style={`width: ${bar.pct}%`} title={`${bar.label}: ${bar.reading}`} aria-hidden="true"></span>
+            </td>
+            <td class="value">{bar.reading}</td>
+          </tr>
+        ))
+      }
+    </tbody>
+  </table>
+  <figcaption>{caption}</figcaption>
+</figure>
+
+<style>
+  .bar-chart {
+    margin: 6px 0 30px;
+    padding: 18px 20px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    color: var(--muted);
+    font: 12.5px/1.4 var(--font-mono);
+  }
+
+  th {
+    padding: 0 12px 0 0;
+    font-weight: 400;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  td {
+    padding: 0;
+  }
+
+  /* All spare width goes to the bars; the left border is the zero axis. */
+  .track {
+    width: 100%;
+    padding-block: 16px;
+    border-left: 1px solid var(--mark);
+  }
+
+  /* No left border: the bar starts on the axis line. */
+  .bar {
+    display: block;
+    height: 18px;
+    border: 1px solid var(--mark);
+    border-left: 0;
+    border-radius: 0 4px 4px 0;
+    background: repeating-linear-gradient(45deg, var(--mark) 0 1px, transparent 1px 4px);
+  }
+
+  .hi .bar {
+    border-color: var(--accent);
+    background: var(--accent);
+  }
+
+  .value {
+    padding-left: 12px;
+    color: var(--ink);
+    white-space: nowrap;
+  }
+
+  figcaption {
+    margin-top: 10px;
+    color: var(--muted);
+    font: 12px/1.5 var(--font-mono);
+  }
+
+  /* Rows share one value column (subgrid), so every bar keeps the same scale. */
+  @media (width <= 640px) {
+    table {
+      display: block;
+    }
+
+    tbody {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      column-gap: 12px;
+    }
+
+    tr {
+      display: grid;
+      grid-column: 1 / -1;
+      grid-template-columns: subgrid;
+      align-items: center;
+    }
+
+    th {
+      grid-column: 1 / -1;
+      padding: 10px 0 6px;
+      text-align: left;
+      white-space: normal;
+    }
+
+    .track {
+      padding-block: 0;
+    }
+
+    .value {
+      padding-left: 0;
+    }
+  }
+</style>

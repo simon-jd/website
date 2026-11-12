@@ -1,0 +1,130 @@
+{
+  "id": "pcie-dma-driver-lab",
+  "title": "pcie-dma-driver-lab — Linux PCIe DMA Driver and QEMU Device Model: Buffer Ownership Through Cancel, Reset, FLR and Hot-Unplug, Checked Under KASAN, KCSAN and a Strict Emulated IOMMU, with a KVM Cost Study",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/pcie-dma-driver-lab",
+  "workstreams": [
+    {
+      "id": "driver-ownership-recovery",
+      "title": "Linux 6.12 PCI driver for an emulated DMA engine: buffer ownership, bounded recovery and hot-unplug",
+      "period": "2026",
+      "tracks": [
+        "infra/systems_software",
+        "sre"
+      ],
+      "tech_stack": [
+        "C",
+        "Linux kernel",
+        "PCIe",
+        "MSI-X",
+        "DMA API",
+        "IOMMU",
+        "KASAN",
+        "KCSAN",
+        "lockdep",
+        "kmemleak",
+        "KUnit",
+        "QEMU",
+        "Python"
+      ],
+      "summary": "A Linux 6.12.41 PCI driver for a scatter-gather DMA copy engine that returns a CRC32C, written against a device model in QEMU 10.2.1 (the hardware exists only in QEMU). The driver moves user buffers with pinned zero-copy DMA, a bounce pool or registered buffers pinned and mapped once, uses MSI-X and several queues, and keeps a per-file contract for who owns a buffer while the device may still write to it. Timeouts escalate from device abort to controller reset, FLR and finally clearing bus mastering; removal under load, DMA faults with and without QEMU's emulated IOMMU and a no-overlapping-destinations rule are covered. Checked in KVM and TCG guests with KASAN, KCSAN, lockdep, DMA-API debug, kmemleak, fault injection and deliberate bugs.",
+      "bullets": [
+        "Wrote a Linux 6.12 PCI driver for an emulated (QEMU) scatter-gather DMA copy + CRC32C engine (MSI-X, multiple queues, pinned zero-copy, bounce or registered buffers) whose per-file contract fixes who owns a buffer while the device may still write to it: buffers are unmapped and unpinned only after the device's completion, a finished reset or bus mastering turned off.",
+        "Bounded every wait: a 100 ms watchdog escalates a stuck command from device abort to controller reset to FLR (pci_try_reset_function with reset_prepare/reset_done) to clearing bus mastering; with an emulated engine that hangs and ignores aborts, close() and the reset ioctl return after 567 and 561 ms instead of never (the 500 ms abort deadline plus a controller reset), a command with a 200 ms timeout ends in a controller reset after 765 ms, and a controller that also ignores its reset is recovered by an FLR, with that command's buffers still pinned and mapped until then.",
+        "Handled removal under load, both an orderly device_del and a device that suddenly reads all-ones, with 3 threads and 5 files busy: every command completed exactly once, open files return ENODEV and nothing leaked; a fault knob holds four commands of a separate file in the device, so the tests know commands are outstanding when it goes instead of depending on timing; switched the test guest to ACPI hotplug after finding that Linux 6.12.41's pciehp produces a lockdep circular-dependency report on every removal.",
+        "Rejected overlapping DMA destinations with a module-wide physical-address interval tree (EADDRINUSE) and bounced partial head and tail cache lines through the command's coherent scatter-gather block, after DMA-API debug flagged overlapping device-writable mappings; the tracker costs at most 7% throughput on KVM.",
+        "Verified on 10 guest configurations (KVM and TCG, each with a strict emulated Intel IOMMU and without, an ASan+UBSan QEMU, a KCSAN kernel, and four with the device's queues in IOThreads): KUnit 13/13 and 37 client cases with no KASAN, KCSAN, lockdep, DMA-API or kmemleak report, fault injection that fails every allocation of a zero-copy and a bounce submit once, and every probe-path allocation once except those under the IRQ core's register_irq_proc(), and 16 of 16 deliberate bugs (such as unmapping before completion, releasing buffers before the reset finished or unregistering a buffer a command still holds) caught by named checks."
+      ]
+    },
+    {
+      "id": "qemu-device-kvm-study",
+      "title": "QEMU PCIe device model and a KVM study of what each DMA command costs",
+      "period": "2026",
+      "tracks": [
+        "infra/systems_software",
+        "infra/cloud_platform"
+      ],
+      "tech_stack": [
+        "C",
+        "QEMU",
+        "KVM",
+        "PCIe",
+        "MSI-X",
+        "Intel VT-d IOMMU",
+        "Linux kernel",
+        "Python",
+        "GitHub Actions"
+      ],
+      "summary": "The device side: a PCIe DMA engine written as a QEMU 10.2.1 device model with BAR registers, submission and completion rings, MSI-X, scatter-gather descriptors and fault knobs, tested through QEMU's qtest protocol on release and ASan+UBSan builds. Then a timing study on KVM (one shared Intel Core i9-13900K, pinned vCPUs, a guest kernel without debug options) of per-command cost, VM exits, queue depth, doorbell batching, interrupt coalescing, zero-copy vs bounce with and without QEMU's emulated Intel IOMMU, and scaling, on the original code before it was first published (the first optimization round later cut exits to QEMU per command one at a time from 2.00 to 0.06; the doorbell exit is now handled inside KVM). The numbers measure the guest driver plus KVM exits plus QEMU's device model around a modeled service time, not device throughput.",
+      "bullets": [
+        "Wrote the device as a QEMU 10.2.1 PCIe model (BAR registers, submission and completion rings, MSI-X, scatter-gather descriptors, fault knobs for stalls, held commands, a controller that ignores its reset or never becomes ready again, and surprise removal) with a 21-test qtest suite (one test rejects 15 classes of malformed descriptor, another fuzzes descriptors, SG lists, doorbells and aborts from a fixed seed) that passes on release and ASan+UBSan builds of QEMU, each test run once in QEMU's main loop and once with the queues in IOThreads.",
+        "Measured on KVM with pinned vCPUs and a non-debug guest kernel (driver plus virtualization around a modeled zero service time, not device throughput) that one 4 KiB command takes 9.2 µs round trip with 3.65 VM exits, two of them MMIO (submission doorbell and completion-head write), while MSI-X adds no exit because of posted interrupts.",
+        "Showed that queue depth alone does nothing past 2 (128k–136k commands/s from 2 to 32 in flight, each doorbell an MMIO exit costing about 3 µs of vCPU time) while batched doorbells reach 539k/s at depth 32 (4.0x) with 0.11 exits per command; kept interrupt coalescing off by default because at 4 completions or 10 µs it raised depth-32 throughput with a doorbell per command 28% (75% at 16 or 50 µs; 14% and 22% on top of batched doorbells) but cut single-command throughput from 104.7k to 45.3k/s.",
+        "Set the driver's bounce threshold from the data: without an IOMMU zero-copy and bounce tie at 2 KiB and zero-copy is 1.4x faster at 64 KiB, but behind QEMU's strict emulated Intel IOMMU each zero-copy command adds two invalidation exits and bounce wins at both sizes measured there, 4 KiB and 64 KiB (4 KiB: 98.6k vs 49.8k/s), so bounce_max now defaults to 2048 or 65536 by DMA path.",
+        "Kept the measurements usable on a shared host: each 1 s window records KVM's per-vCPU exit counts (QMP query-stats), the device's own counters and foreign CPU time on the VM's CPUs, and windows over thresholds fixed from a pilot are rerun (447 of 1,128); 3 threads on 3 queues scale 1.5x, a pattern consistent with QEMU's global lock (inferred, no host profiler).",
+        "Found the emulator, not the driver, was the bottleneck above a few KiB: QEMU's byte-at-a-time CRC32C table made 64 KiB copies 6.5x slower (9.0k vs 58.3k/s), so the device model now uses the SSE4.2 instruction, keeping the table as an option for comparison.",
+        "Built CI on GitHub Actions (ubuntu-24.04) from the pinned, SHA256-checked QEMU 10.2.1, glib and Linux 6.12.41 sources, with the actions pinned by commit: it builds the device into release and ASan+UBSan QEMU, runs the qtest suite on both in the main loop and with IOThreads, builds the KASAN kernel with the driver and test clients, and runs the guest suite under TCG behind a strict emulated IOMMU; from a fresh clone the same steps took 407 s for the improvement round's code on four threads of the build host, and that code passed every step on a GitHub runner in 9 minutes on its branch and 14 on main."
+      ]
+    },
+    {
+      "id": "kvm-command-path-optimization",
+      "title": "Optimization round along the command path: fewer VM exits, merged interrupts, shadow doorbells and registered buffers",
+      "period": "2026",
+      "tracks": [
+        "infra/systems_software",
+        "infra/cloud_platform"
+      ],
+      "tech_stack": [
+        "C",
+        "Linux kernel",
+        "QEMU",
+        "KVM",
+        "PCIe",
+        "MSI-X",
+        "ioeventfd",
+        "DMA API",
+        "Intel VT-d IOMMU",
+        "KUnit",
+        "Python"
+      ],
+      "summary": "A performance round on the original driver and device model as first published, guided by the KVM study's exit counts: each change was frozen as its own build (release QEMU, non-debug kernel, benchmark client) and booted in turn with the original code and the previous kept step inside one quiet window, seven paired boots, under a keep-or-drop rule fixed before the runs it judged, then rerun from fresh clones as an independent check. Four changes were kept and one reverted. The device and the IOMMU are emulated and every run is local on one host; the numbers are the guest driver plus KVM exits plus QEMU's device model around a modeled service time of 0, not device throughput.",
+      "bullets": [
+        "Raised the emulated device's 4 KiB DMA command throughput on KVM against the original code 1.4x one at a time (106.7k to 152.1k/s, p50 9.1 to 6.1 µs), 4.4x at 32 in flight with a doorbell each (133.2k to 577.8k/s) and 4.7x with three threads on their own files (201.0k to 951.6k/s), winning 7 of 7 paired boots on every benchmark and reproduced by an independent rerun from fresh clones within 3% except no-op commands on one shared file (2.79x against the round's 2.68x), while VM exits to QEMU per command one at a time fell from 2.00 to 0.06.",
+        "Wrote the completion-queue head once per 16 reaped entries instead of after each, with a progress argument that the device can never stall waiting for it and a test that it sees exactly 16 head writes for 256 commands; against the original code in that step's own session, MMIO exits per command fell from 2.00 to 1.06 and one-at-a-time 4 KiB throughput rose from 102.2k to 139.8k/s.",
+        "Moved the submission doorbell into a shadow page with an NVMe-style event index and a KVM ioeventfd, with full barriers on both sides so a doorbell the driver skips because the device looked busy is never lost; at 32 in flight only 0.28 doorbells per command reach the device and throughput rose 2.8x over the previous step (208.2k to 583.0k/s), most of it from the ioeventfd (on the final build: 204.9k without the shadow page, 226.8k with the event index alone, 575.6k/s with both); against the previous step QEMU's main loop spent more per no-op command one at a time (2.80 to 3.49 µs: the eventfd wakeup and the shadow-page reads) and the vCPU less (6.33 to 5.64 µs).",
+        "Announced each processing pass's completions with two MSI-X messages (the first at once, one after the last) instead of one per completion, which delays no completion; against the previous step, messages per command with 32 batched fell from 1.00 to 0.06, QEMU main-loop time from 1.03 to 0.71 µs per command and throughput rose from 559.8k to 695.2k/s, while three threads on one file with 4 KiB copies fell from 210.9k to 204.6k/s (faster in 1 of 7 pairs, within the keep rule).",
+        "Added registered buffers, pinned with FOLL_LONGTERM and DMA-mapped once, then referenced by fixed commands under the same release rule as every command, so a strict emulated IOMMU no longer maps and invalidates per command: 4 KiB one at a time 148.0k/s vs 131.4k bounce and 70.2k zero-copy in the same build (the original code's best 98.1k), and 1.6x over bounce at 64 KiB.",
+        "Kept registered buffers although they miss the keep rule: the paths that do not use them got 1–4% slower at 32 in flight in five sessions (32 batched and the three-thread arms up to about 2% in some sessions, ties in others; against a rebuild of the step before, every arm measured was 0.3–1.7% and 0.8–4.3% slower in the next round's first two sessions, and four of six 0.4–4.6% slower, three threads the most, in a later diagnostic one); swapping the QEMU binaries and the benchmark clients between builds placed the cost in the guest kernel, and restoring the old struct offsets (checked with pahole) did not help. The next round moved the registered-buffer code into its own file, so the other paths run the old functions plus a branch in submit and one in release; that took back 30% and 72% of the cost by median in the two sessions of a fresh-clone rerun, though it won only 5 of 7 paired boots against the first round's build at 32 in flight in that round's own sessions (6 required).",
+        "Measured and reverted exclusive wakeups for readers of a shared file (3 and 4 of 7 pairs, no gain once the doorbell exits were gone), and traced the remaining limit to QEMU's single main loop, 92% busy at 952k commands/s with three threads."
+      ]
+    },
+    {
+      "id": "kvm-iothread-dataplane",
+      "title": "Second optimization round: the device's queues in QEMU IOThreads without the global lock, and a faster device file shared by several threads",
+      "period": "2026",
+      "tracks": [
+        "infra/systems_software",
+        "infra/cloud_platform"
+      ],
+      "tech_stack": [
+        "C",
+        "QEMU",
+        "KVM",
+        "irqfd",
+        "ioeventfd",
+        "MSI-X",
+        "PCIe",
+        "Linux kernel",
+        "Python"
+      ],
+      "summary": "A second optimization round on the first round's build, for the limits that round left: QEMU's single main loop running the whole device model and a file shared by several threads. Each step was frozen as its own build and booted in turn with the first round's build and the previous kept step inside one quiet window, seven paired boots per session, under a keep-or-drop rule written before the runs it judged; the round was then rerun from fresh clones in two sessions as an independent check. The device and the IOMMU are emulated and every run is local on one host; the numbers are the guest driver plus KVM exits plus QEMU's device model around a modeled service time of 0, not device throughput, and the IOThread mode uses one more host CPU.",
+      "bullets": [
+        "Ran the emulated device's queues in a QEMU IOThread outside the global lock, as an option (a mutex per queue for its rings and counters, a lockless BAR so a vCPU's doorbell takes only its queue's mutex, device DMA restricted to RAM, interrupts through KVM irqfds): on KVM, one IOThread on its own host CPU raised throughput against the first round's build 1.38x with three threads on their own files (923.2k to 1,266.5k commands/s), 1.50x with the three threads batching their doorbells and 1.17x for one 4 KiB command at a time (150.0k to 176.2k/s, 6.2 to 5.3 µs), using less host CPU per command than the main loop, in seven paired boots per session and confirmed by an independent rerun from fresh clones.",
+        "Kept QEMU's main loop as the default because one IOThread loses where a busy device used to batch for free: against the first round's build, 32 in flight from one thread reaches 0.92–0.94x with the IOThread but 1.08–1.11x in the main loop, and a file shared by three threads 1.07–1.17x instead of the main loop's 1.25–1.45x (ranges include the independent rerun), since a device that keeps up finds its queue empty more often and the driver rings and is interrupted more (doorbells per command at 32 in flight 0.22 to 0.49); one IOThread per queue on the SMT siblings of the vCPUs' cores lost 13–14% against the main loop with three threads (0.86–0.87x in four sessions), 10–12% at 4 in flight (0.88–0.90x), 42–43% at 32 in flight (0.57–0.58x; 24–27% with coalescing at 16 completions or 50 µs, 0.73–0.76x), 2–3% with 8 batched (0.97–0.98x), up to 2% with 32 batched (0.98–1.00x) and 25–30% on a shared file (0.70–0.75x).",
+        "Kept reset, FLR, hot-unplug, DMA faults and the fault knobs working in IOThread mode: every qtest test also runs with the queues in two IOThreads (42 runs on each of the release and ASan+UBSan QEMU builds), the guest matrix gained four IOThread configurations, and a deliberate bug that loses an IOThread's interrupt is caught; the mode refuses TCG behind an emulated IOMMU and DMA to anything but RAM.",
+        "Sped up three threads sharing one open device file, with the device in QEMU's main loop, 1.39x for no-op commands (512.1k to 718.6k commands/s) and 1.28x for 4 KiB copies (484.2k to 614.5k/s) against the first round's build, by finding a file's commands through a per-file id hash and letting read() take a whole batch of completions in two lock rounds instead of two per completion, each completion still consumed exactly once; a shared file still costs about a third against three files (614.5k vs 938.9k/s).",
+        "Measured what the round costs QEMU's default main-loop path against the first round's build: one command at a time and three threads on their own files 0.98–1.01x, except 64 KiB one at a time (0.96x in both sessions of the independent rerun, 0.98–1.01x in the round's own three sessions and in the rerun's second benchmark plan) and 4 KiB zero-copy one at a time (0.95–1.01x across sessions), both from slower boots of the final build; batching at three threads is still 0.86–0.89x of not batching."
+      ]
+    }
+  ]
+}

@@ -1,0 +1,102 @@
+---
+dek: "Why a 988 MB weight push took two seconds between two GPU nodes, and what packing it into 64 MiB buckets changed."
+draft: false
+---
+
+<Sidenote>Qwen2.5-0.5B-Instruct on GSM8K with a 1/0 reward on the last boxed answer, 6,400 completions per run (100 steps × 8 prompts × 8 samples), run as Snowflake ML Jobs on a trial account. vLLM 0.10.2, torch 2.8.0 with NCCL 2.27.3.</Sidenote>
+
+Crucible’s GRPO loop has two halves: a vLLM engine that generates rollouts and an FSDP2 learner that trains on them. On one GPU the halves take turns. On separate GPUs they can run at the same time, but then every step ends with a push: the learner’s new BF16 weights have to reach the rollout engine before it samples with them. This case study follows that push across two nodes, where it took two seconds a step, and what brought it down.
+
+## Two GPUs, one push per step
+
+The rollout engine tags every sample with the policy version that produced it, and the learner checks each sample’s staleness before it trains on it. With one version of lag allowed, vLLM can generate the next batch while the learner trains on the current one.
+
+<Sidenote>A GPU_NV_2M node has 2× A10 24 GB (vGPU, no NVLink or P2P); a GPU_NV_SM node has 1× A10 24 GB. Each layout ran seeds 17, 18 and 19; the bucketed sync ran once, with seed 17.</Sidenote>
+
+On the two A10s of one GPU_NV_2M node, with the weights broadcast over NCCL after every step, GRPO training time fell from 1,207 s for the time-shared loop on one A10 to 741 s, 1.63× faster. The learner GPU was idle 1% of the time, every batch was one version old, and none was dropped.
+
+Across two GPU_NV_SM nodes over TCP, with 4 threads × 4 NCCL sockets, the same loop took 933 s: only 1.29× faster than taking turns on one GPU, with weight sync taking 2.9 s of every step.
+
+## The link, or the defaults?
+
+The GPU_NV_SM nodes have no InfiniBand device, so NCCL uses TCP sockets. A network baseline, measured on its own with 3 passes per test, showed where the limit was. Raw TCP tests showed that one stream carries about 0.19 GB/s, and with NCCL’s defaults a 1 GiB all-reduce got 0.19 GB/s and a broadcast 0.27 GB/s. The defaults were the limit, not the link: with 8 threads × 8 sockets and at least 4 channels, the same collectives reached 1.26 and 2.6 GB/s.
+
+<BarChart
+  label="NCCL bandwidth for 1 GiB between two A10 nodes over TCP: all-reduce 0.19 GB/s by default and 1.26 GB/s tuned, broadcast 0.27 GB/s by default and 2.6 GB/s tuned."
+  caption="NCCL bandwidth for 1 GiB between two A10 nodes over TCP · tuned: 8 threads × 8 sockets, at least 4 channels · 3 passes each"
+  rows={[
+    { label: 'all-reduce · default', value: 0.19, unit: 'GB/s' },
+    { label: 'all-reduce · tuned', value: 1.26, unit: 'GB/s' },
+    { label: 'broadcast · default', value: 0.27, unit: 'GB/s' },
+    { label: 'broadcast · tuned', value: 2.6, unit: 'GB/s', highlight: true },
+  ]}
+/>
+
+Rerun with those settings, two-node GRPO took 860 s, 1.40× faster than the time-shared loop, and weight sync fell from 2.9 s to 2.0 s per step. That still left the two-node loop behind the one-node one.
+
+<BarChart
+  label="GRPO training time with per-tensor weight sync: time-shared on one A10 1,207 s, separate GPUs in one node 741 s, two nodes with 4 × 4 sockets 933 s, two nodes with 8 × 8 sockets 860 s."
+  caption="GRPO training time with per-tensor weight sync on A10 GPUs · 6,400 completions per run"
+  rows={[
+    { label: 'time-shared · one A10', value: 1207, unit: 's' },
+    { label: 'separate GPUs · one node', value: 741, unit: 's' },
+    { label: 'two nodes · 4 × 4 sockets', value: 933, unit: 's' },
+    { label: 'two nodes · 8 × 8 sockets', value: 860, unit: 's', highlight: true },
+  ]}
+/>
+
+## Fewer, larger broadcasts
+
+Two seconds for 988 MB was still far from what the link could carry: raw broadcasts of the same bytes took 0.38 s. The rest was protocol. Sending the weights one tensor at a time issued 1,478 collectives, one after another, for the 290 tensors of a single push.
+
+The bucketed sync packs the weights into 64 MiB buckets and sends them as 15 broadcasts, and a SHA-256 manifest over 16 MiB chunks checks what arrived. A push now takes 25 collectives instead of 1,478.
+
+```python
+# sketch, not the actual implementation
+for bucket in pack(weights, size=64 * MiB):   # 15 buckets
+    dist.broadcast(bucket.flat, src=LEARNER)
+verify(manifest, chunk=16 * MiB)               # SHA-256
+```
+
+Timed on its own between the two nodes, one push fell from 2.02 s to 0.45 s, close to the raw-broadcast floor.
+
+<BarChart
+  label="Time for one 988 MB push: per-tensor 2.02 s, bucketed 0.45 s, raw broadcast 0.38 s."
+  caption="Time for one 988 MB push between two A10 nodes over TCP · 3 timed passes"
+  rows={[
+    { label: 'per-tensor sync', value: 2.02, unit: 's' },
+    { label: 'bucketed · 15 × 64 MiB', value: 0.45, unit: 's', highlight: true },
+    { label: 'raw broadcast, same bytes', value: 0.38, unit: 's' },
+  ]}
+/>
+
+## Back in the training loop
+
+One bucketed run of the two-node loop, against its per-tensor baseline:
+
+<Stats
+  items={[
+    { value: '2.22 → 0.48 s', label: 'weight sync per step' },
+    { value: '889 → 689 s', label: 'GRPO training time' },
+    { value: 'bit-identical', label: 'vLLM logits after sync' },
+  ]}
+  caption="GRPO on two A10 nodes over TCP · one run, seed 17"
+/>
+
+That run finished 1.75× faster than the time-shared loop on one A10.
+
+Speed only counts if the rollout engine still computes the same thing. The weight-sync correctness check compares vLLM’s logits after a sync with a Hugging Face BF16 reference on 6 prompts × 2 weight versions over all 151,936 vocabulary entries: 1,823,232 coordinates, each within an error bound fixed before the run. It passed in both separate-GPU layouts with 0 failures. The bucketed sync passed it unchanged, and its logits were bit-identical to the per-tensor run’s.
+
+The training signal held too. Across the three layouts, GSM8K rose +3.80, +3.78 and +2.99 pp, each above 4 SE, and no difference between layouts reaches 2 SE. The bucketed run gained +3.13 pp on GSM8K (3.57 SE) and +2.32 pp on MATH-500 (1.95 SE), just under the 2 SE bar.
+
+## What I learned
+
+**Measure the ceiling before tuning.** The raw broadcast of the same bytes, 0.38 s, is the number that showed most of the two seconds was protocol, not bandwidth.
+
+**Count collectives, not only bytes.** The same 988 MB took 2.02 s as 1,478 collectives and 0.45 s as 25.
+
+**Defaults are a starting point, not a property of the hardware.** One TCP stream carried about 0.19 GB/s, and NCCL’s defaults sat right at that figure for all-reduce; more threads, sockets and channels found bandwidth the link already had.
+
+**Keep the correctness check fixed while the code gets faster.** The bucketed sync passed the same check unchanged, so the gain came from how the bytes move, not from what the rollout engine computes.
+
+The rest of Crucible, from serving replay and autoscaling to prefill/decode disaggregation and EAGLE-3 speculative decoding, is in the repo.

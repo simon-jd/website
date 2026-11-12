@@ -1,0 +1,154 @@
+/* Base styles every page shares. The tokens live in tokens.css. */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+/* Keep `hidden` winning over any display rule, such as the theme toggle's flex. */
+[hidden] {
+  display: none !important;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
+body {
+  position: relative; /* anchors the relief in Base's `art` slot */
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 400 16px/1.6 var(--font-text);
+}
+
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 500;
+  line-height: 1.1;
+}
+
+/* No Inter 600 file: a fifth font pushed the case studies' LCP over budget, and Chromium
+   does not synthesize bold from Inter 400. So <strong> thickens Inter 400 with a stroke,
+   at weight 400 so that browsers which do synthesize bold do not add theirs on top. */
+strong {
+  font-weight: 400;
+  -webkit-text-stroke: 0.035em currentColor;
+}
+
+a {
+  color: inherit;
+  /* Longhands: Safari before 26.2 drops a text-decoration shorthand that holds var(). */
+  text-decoration-line: underline;
+  text-decoration-thickness: 1px;
+  text-decoration-color: var(--mark);
+  text-underline-offset: 0.22em;
+}
+
+a:hover {
+  text-decoration-color: currentColor;
+}
+
+/* The site's only motion. */
+@media (prefers-reduced-motion: no-preference) {
+  a {
+    transition: text-decoration-color 0.15s ease;
+  }
+}
+
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+}
+
+.wrap {
+  max-width: var(--page);
+  margin-inline: auto;
+  padding-inline: var(--gutter);
+}
+
+/* The mono line above a page title, after an accent dot (mockup lines 61–62). */
+.kicker {
+  margin: 0 0 20px;
+  color: var(--muted);
+  font: 13px/1.4 var(--font-mono);
+}
+
+.kicker::before {
+  content: '';
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-right: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: 1px;
+}
+
+@media (width <= 640px) {
+  .kicker {
+    margin-bottom: 14px;
+    font-size: 12px;
+  }
+}
+
+.skip {
+  position: absolute;
+  z-index: 10;
+  top: 12px;
+  left: 12px;
+  padding: 8px 14px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--on-accent);
+  font: 13px/1 var(--font-mono);
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+.skip:focus {
+  transform: none;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Shiki writes the day theme's colors inline and the night theme's into --shiki-dark
+   variables; these switch to the night colors wherever MDX renders code, inside an
+   article or not. */
+:root[data-theme='dark'] .astro-code,
+:root[data-theme='dark'] .astro-code span {
+  background-color: var(--shiki-dark-bg) !important;
+  color: var(--shiki-dark) !important;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .astro-code,
+  :root:not([data-theme='light']) .astro-code span {
+    background-color: var(--shiki-dark-bg) !important;
+    color: var(--shiki-dark) !important;
+  }
+}
+
+/* The shared hatch patterns. Off-screen, never display: none, or Chrome stops
+   painting the patterns that other SVGs reference. */
+.defs {
+  position: absolute;
+  width: 0;
+  height: 0;
+  overflow: hidden;
+}

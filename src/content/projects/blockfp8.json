@@ -1,0 +1,63 @@
+{
+  "id": "blockfp8",
+  "title": "blockfp8 — Block-Scaled FP8 GEMM for Ada GPUs and a vLLM Plugin: CuTe Kernel, Per-Block Scale Promotion, Deterministic Split-K",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/blockfp8",
+  "workstreams": [
+    {
+      "id": "fp8-gemm-kernel",
+      "title": "Block-scaled FP8 GEMM kernel in CuTe for sm_89 on RTX 4090",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/gpu_kernels",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "CUDA",
+        "C++",
+        "CUTLASS CuTe",
+        "PTX (mma.sync, ldmatrix, cp.async)",
+        "PyTorch",
+        "CUPTI",
+        "Triton",
+        "cuBLASLt",
+        "Python",
+        "CMake",
+        "pytest"
+      ],
+      "summary": "Block-scaled FP8 (e4m3 weights with one scale per 128x128 block, activations in 1x128 groups) GEMM for one RTX 4090 (sm_89), written with CuTe from CUTLASS v4.8.1: mma.sync.m16n8k32 with FP32 accumulation, a cp.async multi-stage pipeline into swizzled shared memory, block scales applied once per 128-wide K block, deterministic split-K and a per-shape plan table from an autotuning sweep. Benchmarked on the linear-layer shapes of Qwen3-8B-FP8 with synthetic random operands (weights cold in L2, median of 10 interleaved runs, CUPTI kernel spans) against FP8 Marlin W8A16, vLLM's Triton block-FP8 kernel with shipped and tuned configs, and cuBLASLt FP8 with one scale per tensor, which stays faster in the middle and prefill ranges.",
+      "bullets": [
+        "Wrote a block-scaled FP8 GEMM for Ada (sm_89) with CuTe from CUTLASS v4.8.1, using mma.sync.m16n8k32 e4m3 with FP32 accumulation, a cp.async multi-stage pipeline into swizzled shared memory and ldmatrix; on one RTX 4090 with Qwen3-8B-FP8 layer shapes (synthetic random operands, weights cold in L2, median of 10), it reached 305-330 TFLOPS at prefill (M = 1024-8192) against a measured MMA peak of 367 and 862-933 GB/s of weights at decode (M = 1-32) against a 957 GB/s DRAM read peak.",
+        "Compared it with vLLM's Triton block-FP8 kernel tuned for the same GPU and with cuBLASLt FP8: 1.06x faster than tuned Triton on qkv at M = 8192 (1271.3 vs 1346.6 μs) and 1.00-1.19x at M = 64-512, while cuBLASLt with one scale per tensor (coarser scaling, no per-block promotion) stays up to 12% faster at M = 64-512 (o at M = 256: 28.6 vs 32.6 μs) and 4-9% faster at prefill.",
+        "Closed earlier losses to tuned Triton and Marlin by measurement: staged each K tile's activation scales into shared memory with one 4-byte cp.async instead of __ldg loads, which had stalled the weight stream by up to 18% at M = 16, and retuned the per-shape plan table in the benchmark's own harness after the first table, timed with CUDA events on cold activations, picked plans up to 21% slower than the best compiled one (qkv at M = 512: 109.8 vs 90.8 μs).",
+        "Implemented deterministic split-K in one launch (each split writes an FP32 partial; the last CTA to arrive, found with an atomic counter, sums them in fixed split order) and a plan choice between tabulated batch sizes that leaves the least work on the busiest SM: on down at M = 768 it runs 3 CTAs per SM in 248.3 μs instead of 319.7 μs; on six other batch sizes it sped up three cells by 13-23% and slowed gate_up at M = 320 by 2%.",
+        "Measured the FP8 MMA's precision with microbenchmarks (it keeps 13 bits below the largest addend and truncates the rest) and chose per-128-block promotion: median relative error 1.37e-4 on random operands at K = 4096, 10x below the 1.37e-3 median error of bf16 output rounding, against 9.8e-4 for accumulating the whole K range in the MMA accumulator; the relative Frobenius error, 1.669e-3 on down at M = 8192, equals vLLM's Triton kernel.",
+        "Kept a fused activation-quantization GEMM as a measured negative result: once the scale loads stopped stalling, it lost to a separate quantization kernel plus GEMM on every tuned shape (by 0.2-1.1 μs at M = 1-16 on qkv, o and down and 1.6-5.5 μs on gate_up), so the shipped path runs the separate kernel, which is bitwise equal to vLLM's per_token_group_quant_fp8."
+      ]
+    },
+    {
+      "id": "vllm-plugin-e2e",
+      "title": "vLLM 0.31 plugin and end-to-end Qwen3-8B-FP8 evaluation on RTX 4090",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/inference_engine",
+        "ml_infra/perf_analysis"
+      ],
+      "tech_stack": [
+        "vLLM",
+        "PyTorch",
+        "CUDA",
+        "Python",
+        "pytest"
+      ],
+      "summary": "Packaged the kernel as a vllm.general_plugins entry point that places it ahead of Marlin in vLLM 0.31's own block-FP8 kernel list, so FP8 checkpoints such as Qwen3-8B-FP8 run W8A8 on Ada instead of the W8A16 Marlin path vLLM selects there. Measured end to end on one RTX 4090 (median of 5 interleaved runs, one process each) with synthetic random-token prompts, 24 chat prompts and wikitext-2 perplexity; quality was checked by perplexity only.",
+      "bullets": [
+        "Established with vLLM's own kernel selector that vLLM 0.31 has no FP8 tensor-core kernel for block-scaled checkpoints on Ada (its CUTLASS block-FP8 kernel is Hopper/Blackwell only) and picks Marlin, which dequantizes the FP8 weights to bf16 (W8A16); added a vllm.general_plugins entry point that inserts the kernel right before Marlin in vLLM's block-FP8 kernel list, claiming only sm_89, bf16, 128x128 weight blocks and dynamic 1x128 activation groups so every other GPU and layer keeps vLLM's choice.",
+        "Ran Qwen3-8B-FP8 end to end in vLLM 0.31 on one RTX 4090 (median of 5 interleaved runs, one process each): prefill rose from 10211 to 17778 tok/s for 16 prompts of 1024 tokens (1.74x; 1.75x and 1.66x at 256 and 4096 tokens), and decode TPOT fell from 10.10 to 9.87 ms at batch 1 (1.024x) and from 14.07 to 12.64 ms at batch 64 (1.113x).",
+        "Checked quality on wikitext-2-raw-v1 (298,931 scored tokens): perplexity 9.7735 against 9.7646 for stock vLLM (+0.09%), level with vLLM's own W8A8 Triton path at 9.7739 (+0.10%); greedy outputs on 24 chat prompts match stock on 10 of 24, as do the W8A8 path's, and repeated stock runs themselves differed from the first on 2 to 8 prompts.",
+        "Wrote a per-token activation quantization kernel (16 threads per 128-wide group, 16-byte loads, shuffle reduction) so the kernel runs without vLLM; it is bitwise equal to vLLM's per_token_group_quant_fp8 and makes the linear 0.1-7.5 μs faster than the GEMM after vLLM's quantizer on every unfused shape but gate_up at M = 8192 (11.8 μs, 0.2%, slower).",
+        "Limit: decode gains only 2-4% end to end at batch 1-16 because the linear layers are a weight stream for both kernels, down ties with Marlin at M = 1-16 (0.998-1.000x), no downstream task was evaluated, and the plugin relies on a private vLLM 0.31 kernel list that a test checks."
+      ]
+    }
+  ]
+}

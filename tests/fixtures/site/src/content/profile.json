@@ -1,0 +1,15 @@
+{
+  "name": "Test Person",
+  "email": "test@example.com",
+  "linkedin": "https://www.linkedin.com/in/test-person",
+  "github": "https://github.com/test-person",
+  "location": "Boston, MA",
+  "education": [
+    {
+      "school": "Synthetic University",
+      "location": "Boston, MA",
+      "degree": "MS in Computer Science, 32 credits",
+      "date": "Sep 2025 – May 2027"
+    }
+  ]
+}

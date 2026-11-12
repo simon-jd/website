@@ -1,0 +1,92 @@
+---
+// The home page's GPU timeline band (mockup lines 67–75, 187), generated at build time by
+// src/lib/timeline.ts. Both variants are in the page; a container query shows the wide
+// one from 1000px of container width and the narrow one below that, so the labels stay
+// at 12px or more in each.
+import { timeline } from '../lib/timeline.ts';
+
+const LABEL =
+  'Illustration of a GPU timeline: per-tensor sync is many thin NCCL calls; bucketed sync is a few blocks, so more training steps fit.';
+const variants = (['wide', 'narrow'] as const).map((variant) => ({ variant, ...timeline(variant) }));
+---
+
+<div class="timeline">
+  {
+    variants.map(({ variant, viewBox, body }) => (
+      <svg class={variant} viewBox={viewBox} role="img" aria-label={LABEL}>
+        <title>Illustration, not to scale</title>
+        <Fragment set:html={body} />
+      </svg>
+    ))
+  }
+</div>
+
+<style>
+  .timeline {
+    container-type: inline-size;
+  }
+
+  svg {
+    display: block;
+    width: 100%;
+    height: auto;
+    border-top: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+  }
+
+  .wide {
+    display: none;
+  }
+
+  .narrow {
+    max-width: 480px;
+  }
+
+  @container (width >= 1000px) {
+    .wide {
+      display: block;
+    }
+
+    .narrow {
+      display: none;
+    }
+  }
+
+  /* The family only: a `font` shorthand would override the generated font-size attributes. */
+  svg :global(text) {
+    fill: var(--muted);
+    font-family: var(--font-mono);
+  }
+
+  svg :global(.lane) {
+    stroke: var(--line);
+  }
+
+  svg :global(.div) {
+    stroke: var(--mark);
+    stroke-dasharray: 3 4;
+  }
+
+  svg :global(.b-roll) {
+    fill: none;
+    stroke: var(--mark);
+  }
+
+  svg :global(.b-learn) {
+    fill: url(#hatch-mark);
+    stroke: var(--mark);
+  }
+
+  svg :global(.b-cpu) {
+    fill: var(--mark);
+  }
+
+  svg :global(.b-tick) {
+    fill: var(--accent);
+  }
+
+  svg :global(.b-blk) {
+    fill: url(#hatch-accent);
+    stroke: var(--accent);
+  }
+</style>

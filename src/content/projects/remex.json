@@ -1,0 +1,61 @@
+{
+  "id": "remex",
+  "title": "remex — Bazel Remote-Execution Scheduler Study: PostgreSQL Group-Commit Ledger, Fenced Leases, C++ Workers and Flaky-Failure Bisect",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/remex",
+  "workstreams": [
+    {
+      "id": "scheduler-ledger",
+      "title": "Go REAPI scheduler with a group-commit PostgreSQL ledger and fenced C++ workers",
+      "period": "2026",
+      "tracks": [
+        "infra/distributed_systems",
+        "sde"
+      ],
+      "tech_stack": [
+        "Go",
+        "PostgreSQL",
+        "gRPC",
+        "Protocol Buffers",
+        "C++20",
+        "Bazel",
+        "bazel-remote",
+        "cgroup v2",
+        "NVML",
+        "Docker Compose"
+      ],
+      "summary": "A Bazel remote-execution (REAPI v2) scheduler in Go that keeps its ledger in memory behind one lock and persists it to PostgreSQL by group commit, with C++20 workers that run actions in cgroups on CPU, GPU (CUDA) and RTL (Verilator) pools and the unmodified bazel-remote as CAS and action cache. Everything runs on one host (Intel Core i9-13900K, RTX 4090); workloads are one 90-action C++ workspace, synthetic load-test workers (64 to 4,096) and fault-injection tests against real processes, compared with local Bazel and earlier versions of remex.",
+      "bullets": [
+        "Built a Go scheduler for Bazel remote execution (REAPI v2) with C++20 workers: each attempt holds a (worker, epoch) lease renewed by heartbeat, a Complete is accepted only at the current epoch with the attempt's cgroup reported empty and every output blob found in the CAS, and an expired lease bumps the epoch and retries the action, up to three attempts.",
+        "Replaced one fsync'd PostgreSQL commit per ledger mutation with group commit, where a call answers only once everything it observed is durable: 27.5 changes share a transaction on average, and with 64 synthetic workers the ledger reached 1,479 actions/s (median of 5) against 117 (median of 3) for the earlier design, with median heartbeats under 0.1 ms instead of 59–74 ms.",
+        "Committed each result to the ledger before writing it to the action cache, and published off the scheduler lock: an earlier design that called the cache under the lock completed 0.3 actions/s with each action-cache write stalled for 3 s and lost 54 leases, and the same load now loses none.",
+        "Kept workers' attempts alive through a scheduler restart by retrying within the lease and waiting for the gRPC channel to reconnect: with the scheduler SIGKILLed while an action uploaded 64 MiB, the build finished 2.2 s after the kill (median of 5) against 13.8 s for the earlier worker, which re-ran the action.",
+        "Replaced a sort of every runnable execution on each Lease with per-platform min-heaps (with 50,000 actions queued, a median of 26 actions/s became 25,684), and let idle workers hold a Lease until work becomes runnable, which cut the cold samples/cpp-history build from 11.3 s to 8.7 s (medians of 5).",
+        "Measured the limits: with workers sharing the client's four cores, cold build and test took 8.7 s against 6.7 s for local Bazel and warm builds 3.9 s against 3.3 s; with 4,096 synthetic workers the one scheduler lock set the probe's median heartbeat at 23 ms and group commit held PostgreSQL to 3,448 actions/s, with no replication."
+      ]
+    },
+    {
+      "id": "flaky-bisect",
+      "title": "Flaky-failure bisect with an exact stopping rule",
+      "period": "2026",
+      "tracks": [
+        "sde",
+        "sre"
+      ],
+      "tech_stack": [
+        "Go",
+        "Bazel",
+        "Python",
+        "CUDA"
+      ],
+      "summary": "remex bisect hunts failures that only happen some of the time: it calibrates on the known-bad revision until it has failed 10 times, takes a one-sided Clopper–Pearson lower bound on the failure rate, runs each probe often enough that a bad revision passes with probability at most α = 0.05, and confirms the boundary with fresh runs, answering with a range or inconclusive rather than guessing. Evaluated on simulated 96- and 1,000-commit histories against git bisect run variants, plus one metric bisection of a synthetic 40-commit CUDA history on the RTX 4090.",
+      "bullets": [
+        "Built remex bisect for flaky failures: calibrate on the known-bad revision until it has failed 10 times, take a one-sided Clopper–Pearson lower bound on the failure rate, size every probe so a bad revision passes with probability at most α = 0.05, and confirm the final boundary with fresh runs; infrastructure failures cost budget but never count as evidence.",
+        "On 1,000 simulated 1,000-commit histories with a failure rate of 0.25 and 10% infrastructure noise, named the right commit 95.5% of the time against 0.9% for git bisect run with exit 125 on infrastructure failures, with no wrong answer (inconclusive 4.5%).",
+        "Replaced a fixed 20-run calibration, which was right 58% of the time at p = 0.1, with sampling until the 10th failure, which keeps the bound exact; from p = 0.1 to 1 remex was right 94–100% of the time with no wrong answer in any cell, and cost 50 runs on a deterministic failure.",
+        "Reported where tuned reruns win: git bisect run with 30 reruns per revision, picked for the true failure rate, was right 99.8% of the time in a median of 186 test runs against remex's 275, though wrong 0.1% of the time; remex does not need the rate and was wrong once in 16,000 bisections.",
+        "Ran one metric bisection through real workers on the RTX 4090 over a synthetic 40-commit CUDA history with a planted 3.0× slowdown, which shows the pipeline working, not how small a change it can find."
+      ]
+    }
+  ]
+}

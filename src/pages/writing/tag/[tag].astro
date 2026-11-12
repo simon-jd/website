@@ -1,0 +1,32 @@
+---
+// /writing/tag/<slug>/ (spec §5): the published posts with one tag, newest first. Built
+// only for the tags that published posts use.
+import type { CollectionEntry } from 'astro:content';
+import WritingIndex from '../../../layouts/WritingIndex.astro';
+import { publishedPosts } from '../../../lib/posts.ts';
+import { postsWithTag, tagsInUse, typesInUse, type PostType } from '../../../lib/writing.ts';
+
+interface Props {
+  tag: string;
+  posts: CollectionEntry<'writing'>[];
+  types: PostType[];
+}
+
+export async function getStaticPaths() {
+  const posts = await publishedPosts();
+  const types = typesInUse(posts);
+  return tagsInUse(posts).map(({ tag, slug }) => ({
+    params: { tag: slug },
+    props: { tag, posts: postsWithTag(posts, slug), types },
+  }));
+}
+
+const { tag, posts, types } = Astro.props;
+---
+
+<WritingIndex
+  heading={`Tagged “${tag}”`}
+  dek={`${posts.length} ${posts.length === 1 ? 'post' : 'posts'}, newest first.`}
+  posts={posts}
+  types={types}
+/>

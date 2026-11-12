@@ -1,0 +1,50 @@
+---
+// The project cards in a grid of one, two or four columns, for the home page, /work/ and
+// the focus pages. The columns follow the grid's own width (container queries), not the
+// window, so plate labels stay at 12px or more wherever the grid sits. With
+// `plates={false}` the cards leave out their plates, as the focus pages do.
+import type { ProjectView } from '../lib/projects.ts';
+import ProjectCard from './ProjectCard.astro';
+
+interface Props {
+  projects: ProjectView[];
+  /** Whether featured projects show their plates. */
+  plates?: boolean;
+}
+
+const { projects, plates = true } = Astro.props;
+---
+
+<div class="project-grid">
+  <div class="cards">
+    {projects.map((project) => <ProjectCard project={project} showPlate={plates} />)}
+  </div>
+</div>
+
+<style>
+  /* A plate's labels stay at 12px or more only on cards at least 252px wide: the plate
+     SVG is 86% of the inside of its frame, which is the card less 28px, and its 15-unit
+     text sits in a 240-unit viewBox. So four columns from 4 × 252 + 3 × 14 = 1050px of
+     container, two from 2 × 252 + 14 = 518px, and one below that. */
+  .project-grid {
+    container-type: inline-size;
+  }
+
+  .cards {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+  }
+
+  @container (width >= 518px) {
+    .cards {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @container (width >= 1050px) {
+    .cards {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+  }
+</style>

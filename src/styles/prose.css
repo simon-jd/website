@@ -1,0 +1,145 @@
+/* Article pages (spec §4; mockup lines 101–124, 337–390): the measure the head and the
+   body share, the body type, sidenotes, the drop cap, and the stats row and code panels
+   inside the body. Imported by Article.astro. The measure and the prose paint no
+   background, so the corner relief shows through. */
+
+/* A 700px measure. From 1040px up the body also has a 200px margin column on its right,
+   30px away, for sidenotes, as in the mockup's 200 · 700 · 200 grid: the measure stays
+   centered while the window allows, and moves left just enough to keep the margin column
+   20px inside the window when it does not. */
+.measure {
+  --measure: 700px;
+  --note-width: 200px;
+  --note-gap: 30px;
+  width: min(var(--measure), 100% - 2 * var(--gutter));
+  margin-inline: auto;
+}
+
+@media (width >= 1040px) {
+  .measure {
+    margin-left: clamp(
+      var(--gutter),
+      (100% - var(--measure)) / 2,
+      100% - var(--measure) - var(--note-gap) - var(--note-width) - 20px
+    );
+  }
+
+  /* A block that spans the measure and the margin column. */
+  .prose > .wide {
+    margin-right: calc(-1 * (var(--note-gap) + var(--note-width)));
+  }
+}
+
+.prose {
+  counter-reset: sidenote;
+}
+
+.prose > :is(p, ul, ol) {
+  margin: 0 0 22px;
+  font-size: 18.5px;
+  line-height: 1.75;
+}
+
+/* Only the body's own lists: a bare `.prose li` would reach the lists inside
+   components, such as the Stats row. */
+.prose > :is(ul, ol) > li + li {
+  margin-top: 6px;
+}
+
+.prose > p:first-of-type::first-letter {
+  float: left;
+  margin: 8px 10px 0 0;
+  color: var(--accent);
+  font: 500 76px/0.8 var(--font-display);
+}
+
+.prose > h2 {
+  margin: 44px 0 16px;
+  font-size: 36px;
+}
+
+.prose :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+  background: var(--panel);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+/* Numbered by the counter, so MDX sources hold no digits for it. */
+.sidenote {
+  counter-increment: sidenote;
+  color: var(--muted);
+  font: 12.5px/1.55 var(--font-mono);
+}
+
+.sidenote::before {
+  content: counter(sidenote, decimal-leading-zero);
+  margin-right: 6px;
+  color: var(--accent);
+}
+
+/* In the margin, level with the top of the paragraph that follows it (Tufte CSS). */
+@media (width >= 1040px) {
+  .sidenote {
+    float: right;
+    clear: right;
+    width: var(--note-width);
+    margin-right: calc(-1 * (var(--note-gap) + var(--note-width)));
+    padding-top: 5px;
+  }
+}
+
+/* Inline, before the paragraph it annotates. */
+@media (width < 1040px) {
+  .sidenote {
+    display: block;
+    margin: 0 0 18px;
+    padding: 2px 0 2px 14px;
+    border-left: 2px solid var(--line);
+    font-size: 13px;
+  }
+}
+
+/* The stats row is ruled above as well as below inside an article (mockup line 121).
+   The element selectors outrank Stats' scoped rules. */
+.prose > figure.stats {
+  margin: 0 0 28px;
+}
+
+.prose .stats ul {
+  border-top: 1px solid var(--line);
+}
+
+/* Code panels (mockup lines 122–124). Shiki sets the colors inline. */
+.prose pre.astro-code {
+  margin: 0 0 28px;
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  font: 14px/1.7 var(--font-mono);
+}
+
+.prose pre code {
+  font: inherit;
+}
+
+@media (width <= 640px) {
+  .prose > :is(p, ul, ol) {
+    font-size: 17px;
+  }
+
+  .prose > p:first-of-type::first-letter {
+    margin-top: 6px;
+    font-size: 66px;
+  }
+
+  .prose > h2 {
+    font-size: 30px;
+  }
+
+  .prose pre.astro-code {
+    padding: 14px 16px;
+    font-size: 13px;
+  }
+}

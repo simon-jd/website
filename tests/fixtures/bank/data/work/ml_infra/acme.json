@@ -1,0 +1,16 @@
+{
+  "id": "acme",
+  "direction": "ml_infra",
+  "reviewed": true,
+  "header": {
+    "organization": "Acme Synthetic Labs",
+    "title": "Software Engineer Intern",
+    "location": "Nowhere, ZZ",
+    "date": "May 2026 – Sep 2026"
+  },
+  "user_reported": true,
+  "tech_stack": ["Python"],
+  "summary": "Synthetic platform work: a lease lock and a validation queue, tested with 32 synthetic requests.",
+  "bullets": ["A synthetic bullet that must not be exported."],
+  "user_clarifications": ["SECRET-CLARIFICATION: a synthetic private note about the job."]
+}

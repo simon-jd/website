@@ -1,0 +1,67 @@
+{
+  "id": "cuda-lifetime",
+  "title": "cuda-lifetime — Clang Static Analyzer Checker for CUDA Asynchronous Lifetime Bugs: Path-Sensitive Stream Model, SARIF Paths, Held-Out Fixed-Bug Evaluation",
+  "date": "2026",
+  "repo": "https://github.com/simon-jd/cuda-lifetime",
+  "workstreams": [
+    {
+      "id": "async-lifetime-checker",
+      "title": "Path-sensitive CSA checker for CUDA stream-ordered copies, frees and events",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/compilers",
+        "sde"
+      ],
+      "tech_stack": [
+        "C++",
+        "Clang Static Analyzer",
+        "LLVM/Clang",
+        "CUDA runtime API",
+        "SARIF",
+        "Python",
+        "CMake",
+        "Ninja",
+        "lit",
+        "CTest",
+        "GitHub Actions",
+        "Docker"
+      ],
+      "summary": "Out-of-tree, path-sensitive checker for the Clang Static Analyzer (LLVM/Clang 23.1.3, CUDA 13.2) that tracks each stream's pending copies, launches and frees along every path through CUDA host code, one translation unit at a time, and reports a SARIF path from the queueing call to the conflicting access under four rules (CL1-CL4). It ships an nvcc-to-Clang compilation-database translator, JSON wrapper models, generated summaries for helpers in other translation units and a per-TU coverage report that never counts incomplete coverage as clean.",
+      "bullets": [
+        "Wrote an out-of-tree Clang Static Analyzer checker against LLVM/Clang 23.1.3 that gives each CUDA stream a sequence number and records every queued operation's stream, buffer region, byte range, direction and memory kind, retires operations only on synchronization that proves completion (stream, event and device synchronization, successful stream queries, legacy default-stream ordering), and reports SARIF codeFlows from the queueing call to the conflicting host access.",
+        "Defined four rules from the CUDA 13.2.2 documentation (host access to a buffer an async copy still uses; host storage released with work pending; stream-ordered allocation misuse; waits on unrecorded or stale events) and raised an error only when the path proves pinned memory and exact byte overlap, because pageable copies may be synchronous: on an RTX 4090 a pageable D2H cudaMemcpyAsync behind a 20 ms kernel returned after 18.4 ms with the kernel done, a pinned one after 0.007 ms.",
+        "Handled calls the analyzer cannot see by computing at PreCall which pending buffers the arguments reach and reporting at PostCall only if the call was not inlined (12 of an earlier version's 76 alerts had been such duplicates), plus strictly loaded JSON wrapper models and summaries generated from helpers' own translation units after CSA's cross-TU import failed on libstdc++ code with 19 ExplicitInstantiation import errors and an importer assertion.",
+        "Spent CSA's 225,000-node budget where CUDA state can change, guided by a per-function node profile: ending paths that can only reach a throw removed RAFT's error-formatting frames (7,500 to 23,800 of roughly 380,000 nodes per such function), not branching on shared_ptr reference counts cut cuVS's serialize from 69,600 to 28,800 nodes, and the summed per-TU analysis time on three projects fell from 718, 1,363 and 137 s to 586, 1,232 and 126 s.",
+        "Translated nvcc compilation databases to Clang host-only commands flag by flag, excluding and reporting any command with an argument it cannot account for, and wrote a per-TU coverage record (parse failures, unmodeled CUDA calls, exhausted budgets, unknown effects) with exit status 2 when coverage is incomplete, so a unit with gaps never counts as clean."
+      ]
+    },
+    {
+      "id": "checker-evaluation",
+      "title": "Evaluation on fixed bugs from public CUDA projects, labelled corpora and real-project scans",
+      "period": "2026",
+      "tracks": [
+        "ml_infra/compilers",
+        "sde"
+      ],
+      "tech_stack": [
+        "Python",
+        "Clang Static Analyzer",
+        "clang-tidy",
+        "CUDA",
+        "compute-sanitizer",
+        "CuSan",
+        "SARIF",
+        "Git"
+      ],
+      "summary": "Evaluated the checker with labels written before any run: 29 fixed bugs from public CUDA projects in three sets labelled in turn (the last 6 held out and run once), two small synthetic labelled corpora, and a scan of 477 host translation units of cuda-samples 13.2, faiss 1.15.1 and RMM 26.10 with every alert triaged against the source. GPU probes on one RTX 4090 explain the reports. Recall on unseen bugs is low and no real-project alert is a confirmed defect.",
+      "bullets": [
+        "Labelled each fixed bug from its fix commit (rule, file, site lines) before any analyzer ran and scored both the buggy and the fixed revision: version 0.6.0 found 2 of 6 bugs held out from it in a single run (both fixes silence them) and 6 of 10 on the development set it was built on (3 still reported after the fix), while Clang's stock analyzer found 0 and clang-tidy 1 on that set, none of them about the race.",
+        "Found a real early-read bug among the held-out cases: cuCollections' dynamic_map::insert copied a submap's success counter to the host with cudaMemcpyAsync and used it at once; the checker reports both reads as CL1 with the copy on the path, and the fixed revision has no report in the file.",
+        "Scanned 477 host translation units of cuda-samples 13.2, faiss 1.15.1's GPU module and RMM 26.10 at 225,000 nodes and 180 s per TU (105 s, 211 s and 24 s wall time with six analyzer processes) and triaged all 46 alerts against the source: 32 portability findings, 3 notes and 11 false positives, no confirmed defect; 8 of the false positives come from one faiss helper whose result the analyzer cannot relate to the pointer.",
+        "Showed what the portability pattern means on hardware with a probe that reads a cudaMemcpyAsync D2H destination before synchronizing, behind a 20 ms kernel that writes 42: on an RTX 4090 it read the stale -1 sentinel in 20 of 20 runs with pinned memory and 42 in 20 of 20 with pageable memory, which is why pageable reads are warnings and pinned ones errors.",
+        "Compared with dynamic tools on the same probe programs: compute-sanitizer reported only the one device-side fault (a kernel using a stream-ordered allocation before it is ordered), and CuSan reported the four host reads racing a D2H copy but not the frees with work pending or the stream-ordered allocation race.",
+        "Limit: recall on unseen bugs is 2 of 6 (two held-out TUs do not parse under Clang, two bugs are event dependencies across translation units), 26–38% of each project's top-level functions exhaust the node budget, and the synthetic holdout (0.1.0's first run: 25 TP, 1 FP, 0 FN, 23 TN) tests conformance to the rules' semantics document, not recall."
+      ]
+    }
+  ]
+}

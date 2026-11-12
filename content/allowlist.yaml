@@ -1,0 +1,184 @@
+# Drafted from the bank on 2026-11-08 and reviewed by the owner on 2026-11-10.
+#
+# Which bank projects the site shows. List order is display order: the four featured
+# projects, then the ML infrastructure & GPU systems group, then the infrastructure,
+# data & backend group, alphabetically within each group.
+#
+# Every number written here must appear in the bank export it draws on
+# (npm run check:content): one_liner, stack and plate_caption in that project's
+# export; key_results[].text and home.stats.items in the cited workstream only.
+# Optional per project: name (overrides the title before " — "),
+# key_results (default []), exclude_workstreams (default [], all workstreams exported).
+
+projects:
+  - id: crucible
+    focus: ml-infra
+    featured: true
+    plate: 1
+    plate_caption: "i learner · ii 64 MiB buckets · iii rollout"
+    one_liner: "Async GRPO post-training, LLM serving replay and multi-node NCCL tuning, on an RTX 4090 and Snowflake A10 nodes."
+    stack: [FSDP2, vLLM, NCCL]
+    key_results:
+      - text: "Two-node weight sync 2.22 → 0.48 s per step and GRPO training 889 → 689 s after packing NCCL broadcasts into 64 MiB buckets (one run, seed 17)"
+        from: separate-gpu-grpo
+      - text: "1,478 → 25 collectives per weight push between two A10 nodes"
+        from: separate-gpu-grpo
+      - text: "One 988 MB weight push 2.02 → 0.45 s, against 0.38 s for raw broadcasts of the same bytes"
+        from: separate-gpu-grpo
+
+  - id: kvsnap
+    focus: ml-infra
+    featured: true
+    plate: 2
+    plate_caption: "i KV blocks · ii snapshot / restore · iii store"
+    one_liner: "KV-cache snapshots for vLLM: an out-of-tree connector, a Triton restore kernel and a crash-safe store."
+    stack: [vLLM, Triton, SQLite]
+    key_results:
+      - text: "First token of turn 2 in 115 ms from host memory, against 897 ms to recompute, for an 8k-token Qwen3-8B session"
+        from: kv-connector-restore
+      - text: "Triton restore kernel fills scattered KV blocks from pinned host memory at 22.9 GB/s, against 17.5 GB/s for the previous DMA-plus-scatter path"
+        from: kv-connector-restore
+      - text: "A restarted Qwen3-8B engine resumed an 8k-token session in 212 ms from a warm page cache, against 881 ms to recompute"
+        from: durable-snapshot-store
+
+  - id: exactsample
+    focus: ml-infra
+    featured: true
+    plate: 3
+    plate_caption: "i sorted probabilities · ii top-p cutoff"
+    one_liner: "Batch-invariant sampling and speculative-verification kernels in CUDA, with exact top-k and top-p."
+    stack: [CUDA, vLLM]
+    key_results:
+      - text: "96 μs of GPU time for 128 requests with Qwen3's sampling settings, against 455 μs for vLLM's sampler and 626 μs for FlashInfer's, on one RTX 4090"
+        from: sampler-benchmark-vllm
+      - text: "Every token of 192 requests from captured Qwen3-8B logits matched the FP64 reference, with no FP64 fallback"
+        from: exact-sampling-kernels
+      - text: "Byte-for-byte the same tokens on an A10-24Q vGPU as on the RTX 4090, for 192 of 192 requests per capture"
+        from: exact-sampling-kernels
+
+  - id: blockfp8
+    focus: ml-infra
+    featured: true
+    plate: 4
+    plate_caption: "i FP8 tiles with block scales · ii output tile"
+    one_liner: "Block-scaled FP8 GEMM in CuTe for Ada GPUs, shipped as a vLLM plugin."
+    stack: [CuTe, CUDA, vLLM]
+    key_results:
+      - text: "305–330 TFLOPS at prefill against a measured MMA peak of 367 TFLOPS, and 862–933 GB/s of weights at decode against a 957 GB/s DRAM read peak, on one RTX 4090"
+        from: fp8-gemm-kernel
+      - text: "Qwen3-8B-FP8 prefill rose from 10,211 tok/s on vLLM's stock Marlin path to 17,778 tok/s (1.74×) on one RTX 4090"
+        from: vllm-plugin-e2e
+      - text: "Wikitext-2 perplexity 9.7735 against 9.7646 for stock vLLM (+0.09%)"
+        from: vllm-plugin-e2e
+
+  # ML infrastructure & GPU systems
+  - id: cuda-lifetime
+    focus: ml-infra
+    featured: false
+    one_liner: "A Clang Static Analyzer checker that tracks CUDA stream-ordered copies, launches and frees, and reports each conflict as a SARIF path."
+    stack: [Clang Static Analyzer, CUDA, SARIF]
+
+  - id: fairsched
+    focus: ml-infra
+    featured: false
+    one_liner: "Fair multi-tenant scheduling for vLLM: a Virtual Token Counter scheduler plugin, work-based billing and a Go gateway."
+    stack: [vLLM, Go, Python]
+
+  - id: gemm-lab-qualification
+    name: gemm-lab
+    focus: ml-infra
+    featured: false
+    one_liner: "Small-batch FP16 GEMM kernels in Triton and CuTe DSL, checked against an FP64 oracle and timed against cuBLASLt."
+    stack: [Triton, CuTe DSL, cuBLASLt]
+
+  - id: keel
+    focus: ml-infra
+    featured: false
+    one_liner: "An LLM agent runtime with a prompt-injection guard and OAuth-secured MCP servers, plus LLM judge calibration and hybrid RAG."
+    stack: [TypeScript, MCP, vLLM]
+
+  - id: ragged-mlir
+    focus: ml-infra
+    featured: false
+    one_liner: "An MLIR compiler for segmented sum, max and softmax on ragged tensors, with a fitted cost model choosing the schedule."
+    stack: [MLIR, C++, CUDA]
+
+  - id: reqscope
+    focus: ml-infra
+    featured: false
+    one_liner: "Per-request CPU and GPU tracing of vLLM engine steps: a CUPTI injection collector, a blame analyzer and sampled tracing."
+    stack: [CUPTI, C++20, vLLM]
+
+  - id: velaserve
+    focus: ml-infra
+    featured: false
+    one_liner: "An LLM fan-out gateway in Go with streaming measurement, graceful SIGTERM drain and a Terraform deployment on AWS EKS."
+    stack: [Go, Terraform, AWS EKS]
+
+  # Infrastructure, data & backend
+  - id: adpulse
+    focus: infra
+    featured: false
+    one_liner: "An ad event streaming pipeline on Kafka and Flink, with reconciliation checks and a release-pinned ClickHouse query API."
+    stack: [Kafka, Flink, ClickHouse]
+
+  - id: io-uring-coroutine-runtime
+    focus: infra
+    featured: false
+    one_liner: "A C++20 io_uring coroutine runtime where operations own in-flight buffers, plus a RESP key-value server measured against epoll and Valkey."
+    stack: [C++20, io_uring, Linux]
+
+  - id: pathwatch
+    focus: infra
+    featured: false
+    one_liner: "Network path monitoring with Go probes and CUSUM change detection, hybrid BGP/BFD failover and a Rust edge proxy."
+    stack: [Go, Rust, ClickHouse]
+
+  - id: pcie-dma-driver-lab
+    focus: infra
+    featured: false
+    one_liner: "A Linux PCIe DMA driver and QEMU device model that keep buffer ownership through cancel, reset, FLR and hot-unplug."
+    stack: [C, Linux kernel, QEMU]
+
+  - id: quorum-market
+    focus: infra
+    featured: false
+    one_liner: "A distributed e-commerce backend in Go with quorum-replicated KV clusters and order-book matching on historical replay."
+    stack: [Go, RabbitMQ, Redis]
+
+  - id: remex
+    focus: infra
+    featured: false
+    one_liner: "A Bazel remote-execution scheduler with a PostgreSQL group-commit ledger, fenced C++ workers and a flaky-failure bisect."
+    stack: [Go, Bazel, PostgreSQL]
+
+  - id: sponsoratlas
+    focus: infra
+    featured: false
+    one_liner: "An H-1B employer data platform: entity resolution with stable IDs, a dbt fiscal-year backfill and a deck.gl H3 map."
+    stack: [Splink, dbt, DuckDB]
+
+home:
+  stats:
+    project: crucible
+    from: separate-gpu-grpo
+    caption: "Crucible · GRPO on two A10 nodes over TCP · one run, seed 17"
+    items:
+      - value: "2.22 → 0.48 s"
+        label: weight sync per step
+      - value: "1,478 → 25"
+        label: NCCL collectives per push
+      - value: "889 → 689 s"
+        label: GRPO training time
+
+# Newest first. Each line must agree with that entry's summary in the bank.
+work:
+  - id: spectracell
+    line: "Access control, write locking and a validation queue for a clinical laboratory platform, in four submodules that went live."
+  - id: whu-ai-ra
+    line: "Full-time research assistant at the Artificial Intelligence Institute of Wuhan University, before the master's program."
+  - id: yunwei
+    line: "Reliability for a queue-driven service on Kubernetes: backlog-based autoscaling, load tests and primary on-call."
+
+check:
+  ignore: []

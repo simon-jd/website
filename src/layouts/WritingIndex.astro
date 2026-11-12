@@ -1,0 +1,136 @@
+---
+// /writing/ and its type and tag pages (spec §5): a head, links to the type pages in use
+// and to the feed, then the posts newest first (mockup lines 96–100). With no post
+// published, /writing/ shows a single line pointing to the feed instead (spec §5, Empty
+// states).
+import type { CollectionEntry } from 'astro:content';
+import Relief from '../components/Relief.astro';
+import WritingList from '../components/WritingList.astro';
+import { SITE } from '../lib/site.ts';
+import { TYPE_LABEL, type PostType } from '../lib/writing.ts';
+import Base from './Base.astro';
+
+interface Props {
+  /** The h1, which also starts the page title. */
+  heading: string;
+  dek: string;
+  /** Published posts, newest first. */
+  posts: CollectionEntry<'writing'>[];
+  /** The types in use, which each have a page. */
+  types: PostType[];
+  /** The filter this page is: `all` on /writing/, a type on its page, none on a tag page. */
+  current?: PostType | 'all';
+}
+
+const { heading, dek, posts, types, current } = Astro.props;
+const filters = [
+  { href: '/writing/', label: 'all', current: current === 'all' },
+  ...types.map((type) => ({ href: `/writing/type/${type}/`, label: TYPE_LABEL[type], current: current === type })),
+];
+---
+
+<Base title={`${heading} · ${SITE.title}`} description={dek}>
+  <Relief slot="art" variant="corner" />
+
+  <div class="wrap head">
+    <h1>{heading}</h1>
+    {
+      posts.length === 0 ? (
+        <p class="dek">
+          Posts are on the way. Follow along by{' '}<a href="/rss.xml">RSS</a>.
+        </p>
+      ) : (
+        <>
+          <p class="dek">{dek}</p>
+          <nav class="filters" aria-label="Writing by type">
+            <ul>
+              {filters.map((filter) => (
+                <li>
+                  <a href={filter.href} aria-current={filter.current ? 'page' : undefined}>
+                    {filter.label}
+                  </a>
+                </li>
+              ))}
+              <li class="feed">
+                <a href="/rss.xml">rss</a>
+              </li>
+            </ul>
+          </nav>
+        </>
+      )
+    }
+  </div>
+
+  {
+    posts.length > 0 && (
+      <div class="wrap list">
+        <WritingList posts={posts} />
+      </div>
+    )
+  }
+</Base>
+
+<style>
+  .head {
+    padding-top: 44px;
+  }
+
+  h1 {
+    font-size: clamp(48px, 35px + 3vw, 70px);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    overflow-wrap: break-word;
+  }
+
+  .dek {
+    max-width: 700px;
+    margin: 14px 0 0;
+    color: var(--muted);
+    font: italic 400 24px/1.4 var(--font-display);
+  }
+
+  .filters ul {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px 22px;
+    margin: 26px 0 0;
+    padding: 0;
+    color: var(--muted);
+    font: 13px/1.6 var(--font-mono);
+    list-style: none;
+  }
+
+  .filters a {
+    text-decoration-color: transparent;
+  }
+
+  .filters a:hover {
+    color: var(--ink);
+    text-decoration-color: currentColor;
+  }
+
+  /* The current filter in ink and underlined, so it differs by more than color. */
+  .filters a[aria-current] {
+    color: var(--ink);
+    text-decoration-color: currentColor;
+  }
+
+  /* The feed is not a filter, so it sits apart from them. */
+  .feed {
+    margin-left: auto;
+  }
+
+  .list {
+    padding-top: 18px;
+  }
+
+  @media (width <= 640px) {
+    .head {
+      padding-top: 30px;
+    }
+
+    .dek {
+      font-size: 21px;
+    }
+  }
+</style>

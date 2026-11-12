@@ -1,0 +1,88 @@
+---
+// /work/ (spec §5): every allowlisted project as a card, in the two focus groups and in
+// allowlist order within each. A card opens its case study when one is published,
+// otherwise its GitHub repo.
+import ProjectGrid from '../../components/ProjectGrid.astro';
+import Relief from '../../components/Relief.astro';
+import Base from '../../layouts/Base.astro';
+import { FOCUS_LABEL, FOCUS_ORDER, getProjects } from '../../lib/projects.ts';
+import { SITE } from '../../lib/site.ts';
+
+const projects = await getProjects();
+const groups = FOCUS_ORDER.map((focus) => ({
+  focus,
+  label: FOCUS_LABEL[focus],
+  projects: projects.filter((p) => p.focus === focus),
+}));
+---
+
+<Base
+  title={`Work · ${SITE.title}`}
+  description="Junrui Duan's projects in ML infrastructure and GPU systems, and in infrastructure, data and backend."
+>
+  <Relief slot="art" variant="corner" />
+
+  <div class="wrap head">
+    <h1>Work</h1>
+    <p class="dek">
+      {projects.length} projects, each with public code. A card opens the case study where there is one, or else the
+      GitHub repository, marked ↗.
+    </p>
+  </div>
+
+  {
+    groups.map((group) => (
+      <section class="wrap group" data-focus={group.focus} aria-labelledby={`group-${group.focus}`}>
+        <h2 id={`group-${group.focus}`}>{group.label}</h2>
+        <ProjectGrid projects={group.projects} />
+      </section>
+    ))
+  }
+</Base>
+
+<style>
+  .head {
+    padding-top: 44px;
+  }
+
+  h1 {
+    font-size: clamp(48px, 35px + 3vw, 70px);
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+  }
+
+  .dek {
+    max-width: 700px;
+    margin: 14px 0 0;
+    color: var(--muted);
+    font: italic 400 24px/1.4 var(--font-display);
+  }
+
+  .group {
+    padding-top: 40px;
+  }
+
+  h2 {
+    margin-bottom: 18px;
+    font-size: 40px;
+    line-height: 1;
+  }
+
+  @media (width <= 640px) {
+    .head {
+      padding-top: 30px;
+    }
+
+    .dek {
+      font-size: 21px;
+    }
+
+    .group {
+      padding-top: 28px;
+    }
+
+    h2 {
+      font-size: 32px;
+    }
+  }
+</style>

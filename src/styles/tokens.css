@@ -1,0 +1,38 @@
+/* Paper and sage. Each color token pairs its day and night value; light-dark() picks
+   one from the element's color-scheme. With no stored choice the system preference
+   decides; data-theme on <html> pins a choice the visitor made with the toggle.
+   tests/unit/tokens.test.ts checks the contrast of these pairs. */
+:root {
+  color-scheme: light dark;
+
+  --bg: light-dark(#f4f2ed, #232824);
+  --panel: light-dark(#ece9e1, #2a302b);
+  --ink: light-dark(#2f352e, #e9e6dc);
+  --muted: light-dark(#5d6258, #a7ab9f);
+  --line: light-dark(#d9d9cf, #373e38);
+  --accent: light-dark(#56614a, #b9c6a5);
+  --on-accent: light-dark(#f4f2ed, #1f2420);
+  --mark: light-dark(#7f8674, #737c6e);
+
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-text: Inter, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Page width including the gutters, so the content column is 1088px wide. */
+  --page: 1200px;
+  --gutter: 56px;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+}
+
+@media (width <= 640px) {
+  :root {
+    --gutter: 20px;
+  }
+}

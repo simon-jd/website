@@ -1,0 +1,19 @@
+---
+// The sprig divider under an article's dek (mockup lines 105, 350–356). Decorative. The
+// social cards draw the same paths, from src/lib/art.ts.
+import { SPRIG } from '../lib/art.ts';
+---
+
+<svg class="sprig" viewBox={SPRIG.viewBox} aria-hidden="true" focusable="false" set:html={SPRIG.body} />
+
+<style>
+  .sprig {
+    display: block;
+    width: 130px;
+    height: auto;
+    margin: 22px 0 32px;
+    fill: none;
+    stroke: var(--accent);
+    stroke-width: 1.1;
+  }
+</style>

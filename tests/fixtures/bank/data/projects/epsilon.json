@@ -1,0 +1,21 @@
+{
+  "id": "epsilon",
+  "header": {
+    "title": "Epsilon — Minimal Synthetic Project",
+    "date": "2026",
+    "repository": {
+      "github_url": "https://github.com/simon-jd/epsilon"
+    }
+  },
+  "workstreams": [
+    {
+      "id": "epsilon-main",
+      "title": "Synthetic main workstream",
+      "period": "2026",
+      "tracks": ["de"],
+      "tech_stack": ["DuckDB"],
+      "summary": "A minimal synthetic workstream.",
+      "bullets": ["Handled 7 synthetic cases."]
+    }
+  ]
+}

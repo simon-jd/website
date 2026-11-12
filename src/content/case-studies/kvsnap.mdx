@@ -1,0 +1,79 @@
+---
+dek: "How turn 2 of an 8k-token chat starts in 115 ms from host memory instead of 897 ms, and how its snapshot survives an engine restart."
+draft: false
+---
+
+<Sidenote>One RTX 4090 (24 GB, PCIe 4.0 x16) in an i9-13900K host with a Samsung 980 PRO NVMe; Qwen3-8B and Qwen3-1.7B on synthetic random-token sessions; 3 runs per configuration. vLLM 0.31.0, unmodified; LMCache 0.5.6 for comparison.</Sidenote>
+
+A chat session’s next turn carries the whole conversation as its prompt. Without the session’s KV cache, the engine prefills all of it again: for an 8k-token Qwen3-8B session on one RTX 4090, the first token of turn 2 took 897 ms. kvsnap saves a session’s KV cache as a named snapshot when a turn ends, in pinned host memory or on disk, and restores it so the next turn prefills only the new tokens.
+
+## A connector, not a fork
+
+kvsnap is an out-of-tree KV connector built on vLLM’s `KVConnectorBase_V1`, so vLLM itself stays unmodified. The connector reports a snapshot as an external cache hit that loads asynchronously: vLLM parks the request while a loader thread copies the blocks, and the rest of the batch keeps running. Restored from host memory, the same turn 2 took 115 ms.
+
+<BarChart
+  label="First token of turn 2 for an 8k-token Qwen3-8B session: 897 ms to recompute, 115 ms restored from host memory."
+  caption="First token of turn 2, 8k-token Qwen3-8B session on one RTX 4090 · median TTFT over 3 runs"
+  rows={[
+    { label: 'recompute', value: 897, unit: 'ms' },
+    { label: 'kvsnap · host memory', value: 115, unit: 'ms', highlight: true },
+  ]}
+/>
+
+The asynchronous load is what keeps everyone else moving. With 16 Qwen3-1.7B decode streams and 54 resumes per run, the p99 decode gap during resumes stayed at 23–26 ms, against 78–129 ms when the load ran synchronously inside `start_load_kv`. The price is about one engine step of TTFT: a median 11 ms more than the synchronous load.
+
+## A restore kernel for scattered blocks
+
+vLLM keeps a session’s KV cache in scattered blocks. The restore kernel, written in Triton, runs on 12 of the GPU’s 128 SMs: it reads each (layer, block) span from pinned host memory over PCIe and writes it straight into place. On 1.2 GB shaped like Qwen3-8B it reached 22.9 GB/s whatever the block order, ahead of the previous DMA-plus-scatter path and even of a single contiguous DMA copy.
+
+<BarChart
+  label="Restore bandwidth from pinned host memory: Triton restore kernel 22.9 GB/s, one contiguous DMA copy 19.5 GB/s, DMA plus scatter 17.5 GB/s, 2D copies on shuffled block ids 13.1 GB/s."
+  caption="Restore bandwidth from pinned host memory, 1.2 GB shaped like Qwen3-8B, on one RTX 4090"
+  rows={[
+    { label: 'Triton restore kernel', value: 22.9, unit: 'GB/s', highlight: true },
+    { label: 'one contiguous DMA copy', value: 19.5, unit: 'GB/s' },
+    { label: 'DMA plus scatter (before)', value: 17.5, unit: 'GB/s' },
+    { label: '2D copies, shuffled blocks', value: 13.1, unit: 'GB/s' },
+  ]}
+/>
+
+## Exact, not just close
+
+A restore is only worth having if the model cannot tell. With batch-invariant kernels, all 9 Qwen3-8B and all 18 Qwen3-1.7B restores matched recompute’s logprobs bit for bit (one run per model). The check has a negative control: flipping one head’s key vector for one token in each disk snapshot made all 12 disk restores’ logprobs differ, although 11 of the 12 still produced the same greedy tokens. With vLLM’s default kernels, 160 of 180 Qwen3-8B restores reproduced recompute’s 16 greedy tokens.
+
+## Snapshots that survive a restart
+
+Disk snapshots are built to outlast an engine restart. Each is a set of content-addressed SHA-256 blocks, checked with CRC32C on every disk read, in fdatasync’d blob files behind an SQLite WAL manifest. A per-session generation number fences stale writers, so a late save from a superseded turn cannot overwrite a newer snapshot, and a restore holds a lease that keeps garbage collection and host-tier eviction away from the blocks it is reading.
+
+A restarted Qwen3-8B engine resumed an 8k-token session in 212 ms from a warm page cache and in 559 ms with the cache dropped, against 881 ms to recompute. LMCache’s local-disk backend kept its 7.5 GB of files across the restart but recovered nothing: 955 ms, with 0 cached prompt tokens on all 24 resumes.
+
+<BarChart
+  label="Resuming an 8k-token Qwen3-8B session after an engine restart: kvsnap 212 ms with a warm page cache and 559 ms with it dropped, recompute 881 ms, LMCache local disk 955 ms."
+  caption="Resuming an 8k-token Qwen3-8B session after an engine restart, on one RTX 4090"
+  rows={[
+    { label: 'kvsnap · warm page cache', value: 212, unit: 'ms', highlight: true },
+    { label: 'kvsnap · page cache dropped', value: 559, unit: 'ms' },
+    { label: 'recompute', value: 881, unit: 'ms' },
+    { label: 'LMCache · local disk', value: 955, unit: 'ms' },
+  ]}
+/>
+
+To test crash safety, I SIGKILLed a real writer process at eight boundaries of a store commit: after the device-to-host copy, during the blob write, before fdatasync, after the rename, before and after the manifest commit, before the GPU release and during the host-to-device copy. `recover()` rejected every interrupted snapshot and kept every committed one. The kills came at store-level failpoints, not from power loss or interrupted CUDA copies.
+
+Keeping the store off the critical path took tracing. An earlier design committed each save inside the engine step, and one step took 71–114 ms at every turn end. Saves now publish from an ordered commit thread, store reads take no writer lock, store calls left the gateway’s event loop, and `gc.freeze()` removed a 157 ms full collection; in a trace of the current save path, the event loop never stopped for more than 42 ms. At 500 sessions, an unindexed reference-count rebuild had made invalidating a host-memory snapshot take 40.7 s; it now takes 0.9 ms.
+
+## Two GPUs, one snapshot
+
+<Sidenote>Two NVIDIA A10-24Q vGPUs (sm_86) in one node of a Snowflake trial compute pool, with no NVLink or peer access; each cell pools 3 runs of 5 sessions.</Sidenote>
+
+At TP=2, each rank’s worker saves and restores its own shard under one snapshot name: Qwen3-8B’s 8 KV heads split 4 and 4, so an 8k-token snapshot is two 0.6 GB shards. The scheduler commits the manifest only once both ranks have prepared their shard, and the TP size is part of the KV identity. When a TP=2 store was restarted at TP=1, all 3 resumes missed with `IdentityMismatch` and nothing was loaded. On the A10s, an 8k-token session restored from host memory in 109 ms against 3,144 ms to recompute at TP=2, 29 times faster, partly because recompute itself is slower at TP=2: on one of the vGPUs at TP=1 the restore took 113 ms against 1,982 ms.
+
+## What I learned
+
+**Load asynchronously, even when it costs a step.** About one engine step of TTFT, a median 11 ms over the synchronous load, kept the p99 decode gap during resumes at 23–26 ms instead of 78–129 ms.
+
+**Greedy tokens are a weak test of equality.** In the negative control, 11 of 12 corrupted restores still produced the same greedy tokens; bit-for-bit logprobs caught all 12.
+
+**Durability is a protocol, not a file format.** Checksums, generation numbers and leases only count once a kill at each boundary shows that recovery keeps exactly the committed snapshots.
+
+**Know where it loses.** With four 8k-token sessions rotating through GPU memory, LMCache’s CPU backend restored a Qwen3-8B session in 83 ms against kvsnap’s 109 ms, and under load it resumed 39 ms sooner. A durable 8k-token pause still takes about 2.2 s.

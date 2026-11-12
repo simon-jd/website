@@ -1,0 +1,39 @@
+---
+// A figure panel for MDX bodies (mockup lines 113–120): its content on the panel color,
+// with a caption under it. The content carries its own text alternative, such as an
+// image's alt or an SVG's aria-label.
+interface Props {
+  caption: string;
+}
+
+const { caption } = Astro.props;
+---
+
+<figure class="fig">
+  <slot />
+  <figcaption>{caption}</figcaption>
+</figure>
+
+<style>
+  .fig {
+    margin: 6px 0 30px;
+    padding: 18px 20px 14px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    background: var(--panel);
+  }
+
+  /* MDX may wrap an image in a paragraph, so any img; only a top-level svg. */
+  .fig :global(img),
+  .fig > :global(svg) {
+    display: block;
+    width: 100%;
+    height: auto;
+  }
+
+  figcaption {
+    margin-top: 10px;
+    color: var(--muted);
+    font: 12px/1.5 var(--font-mono);
+  }
+</style>

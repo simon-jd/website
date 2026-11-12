@@ -1,0 +1,72 @@
+---
+dek: "A sampler that gives a request the FP64 reference’s tokens whatever else is in the batch, and samples 128 requests with Qwen3’s settings in 96 μs on one RTX 4090."
+draft: false
+---
+
+<Sidenote>One RTX 4090 (sm_89). Inputs are 512 decode-step logit rows captured from Qwen3-8B, not synthetic. Each kernel GPU time is the median CUPTI time over 10 interleaved runs, each in a fresh process, against vLLM 0.31’s model-runner-v2 sampler and FlashInfer 0.7.0.post1.</Sidenote>
+
+The sampler is the last step of decoding: it turns a row of logits into a token. exactsample is a CUDA library, called as a PyTorch custom op, for that step: temperature, top-k, top-p, min-p and greedy sampling, plus ratio and coupled verification of speculative drafts. Each decision is defined in FP64, computed in FP32 with an error bound, and recomputed in FP64 only where the bound does not settle it.
+
+## Certified FP32
+
+Every FP32 score, weight and sum in the fused kernels carries an error bound. A draw is final when the winner’s lower bound clears every other token’s upper bound; anything else is recomputed in FP64, which on the RTX 4090 runs at 1/64 of the FP32 rate. On 192 requests (352 rows) from logits captured from Qwen3-8B, every request’s tokens, accepted length and status matched the FP64 NumPy reference, and none needed the FP64 fallback.
+
+The bound also saves work. The greedy token’s score bounds the winner from below, so a token whose logit plus the largest possible Gumbel noise falls short is skipped before its noise is generated. The FP32 Gumbel noise itself was checked against its error bound of `2^-19 (1 + |G|)` over all `2^32` Philox words; the worst case used 0.13 of the bound.
+
+## Exact top-k and top-p
+
+Top-k and top-p cuts are exact, with ties split by token ID. A 128-bin histogram of each token’s distance below the row maximum finds the candidates, and a radix select over order-preserving keys in shared memory runs on at most 2,048 of them. With Qwen3’s settings (T=0.6, top-k 20, top-p 0.95), the benchmark cells take 2.5 to 6.0 times less GPU time than vLLM’s sampler and 1.7 to 12 times less than FlashInfer’s.
+
+<BarChart
+  label="GPU time to sample 128 requests with Qwen3's settings: exactsample 96 μs, vLLM 455 μs, FlashInfer 626 μs."
+  caption="Sampling 128 requests with Qwen3’s settings (T=0.6, top-k 20, top-p 0.95) · median CUPTI GPU time, one RTX 4090"
+  rows={[
+    { label: 'exactsample', value: 96, unit: 'μs', highlight: true },
+    { label: 'vLLM sampler', value: 455, unit: 'μs' },
+    { label: 'FlashInfer', value: 626, unit: 'μs' },
+  ]}
+/>
+
+Verification of speculative drafts shows the same gap: 64 requests verifying 4 drafts each took 382 μs, against 1,535 μs for vLLM and 2,924 μs for FlashInfer.
+
+<BarChart
+  label="GPU time for 64 requests verifying 4 drafts each: exactsample 382 μs, vLLM 1,535 μs, FlashInfer 2,924 μs."
+  caption="64 requests verifying 4 drafts each, Qwen3’s settings · median CUPTI GPU time, one RTX 4090"
+  rows={[
+    { label: 'exactsample', value: 382, unit: 'μs', highlight: true },
+    { label: 'vLLM sampler', value: 1535, unit: 'μs' },
+    { label: 'FlashInfer', value: 2924, unit: 'μs' },
+  ]}
+/>
+
+## The same tokens, whatever the batch
+
+Every random value is keyed by Philox4x32-10 at (seed, stream, position, substream, token / 4), with separate substreams for the target draw, ratio acceptance and the residual draw. A request’s tokens therefore do not depend on its batch slot, on how the kernel splits its row, or on preemption. The tests check each request alone, permuted, next to other requests and at different slice counts.
+
+Small batches needed their own path. Each row can be split across up to 32 blocks, and the last block to arrive, found with one atomic counter per row, merges the partials in slice order rather than arrival order. A single request no longer leaves 127 of the 128 SMs idle, and the result stays deterministic without a grid barrier.
+
+<Sidenote>The A10-24Q vGPU (sm_86) is on a Snowflake trial compute pool.</Sidenote>
+
+The library is built for sm_86 as well as sm_89. On an A10-24Q vGPU it returned the RTX 4090’s tokens, accepted lengths, statuses and paths byte for byte: 192 of 192 requests per capture, with 96 tests passed and 8 skipped there.
+
+## Checked against exact laws
+
+Matching one reference is not the same as sampling the right distribution, so the statistics were planned before the runs: G-tests against rational-arithmetic enumerations of the exact laws, with 2M draws per cell. All ten cells pass on the CUDA path, the smallest p-value being 0.44, and the counts are identical when every row is forced through the FP32 predicate path. compute-sanitizer’s memcheck, racecheck, initcheck and synccheck report no errors over the CUDA tests.
+
+The benchmark is controlled the same way. Every implementation starts from the same bf16 logits, with per-step buffers prepared outside the timed call, and each run reports GPU time, call time and a cold call made after writing 256 MB to evict the 72 MB L2. The interquartile range is within 1% of the median in 69 of 72 cells, and the 155 MB logit capture regenerates byte for byte from its recorded sha256.
+
+## In vLLM, end to end
+
+Inside vLLM 0.31, with Qwen3-1.7B and Qwen3-8B, 1 to 64 requests, no draft model and five runs per arm, TPOT dropped 0.5 to 2.5% with top-k and top-p and rose 0.1 to 0.7% with temperature alone. The gain is small because sampling is a small part of a decode step: 0.2 to 1.7% of it with exactsample and 0.1 to 5.8% with vLLM’s sampler.
+
+The invariance is the sampler’s. A request’s logits, and so its tokens, still depend on its batch unless vLLM runs its batch-invariant kernels (`VLLM_BATCH_INVARIANT=1`).
+
+## What I learned
+
+**An error bound makes FP32 exact in practice.** FP64 defines every decision, but on 192 real requests it never had to run.
+
+**Determinism is an addressing problem.** Keying each random value by position and merging partials in slice order removed every dependence on the batch slot, the split or preemption.
+
+**Know where it loses.** Temperature-only sampling of up to eight requests takes 1.3 to 1.8 times vLLM’s GPU time (17 against 10 μs for one request), because the fixed kernel sequence reads each row twice in five launches. FlashInfer is 1.14 times faster on one top-p-only request (34 against 39 μs), and its call time with host overhead is lower in every cell.
+
+**Measure where the time is before calling a kernel a win.** A sampler 2.5 to 6.0 times faster than vLLM’s with Qwen3’s settings cut TPOT by at most 2.5%.
