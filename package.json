@@ -17,7 +17,8 @@
     "verify": "npm run build && npm test && npm run test:dist && npm run check:links && npm run lighthouse",
     "check:content": "node scripts/check-content.ts",
     "sync:bank": "node --env-file-if-exists=.env.local scripts/sync-bank.ts",
-    "sync:resume": "node --env-file-if-exists=.env.local scripts/sync-resume.ts"
+    "sync:resume": "node --env-file-if-exists=.env.local scripts/sync-resume.ts",
+    "fonts:subset": "npm run build && node scripts/subset-fonts.ts"
   },
   "dependencies": {
     "@astrojs/mdx": "8.1.3",
@@ -39,6 +40,7 @@
     "linkinator": "8.1.0",
     "node-html-parser": "9.0.7",
     "playwright-core": "1.65.0",
+    "subset-font": "2.9.0",
     "typescript": "6.0.3",
     "vitest": "5.1.0"
   }

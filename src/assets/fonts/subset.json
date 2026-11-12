@@ -1,0 +1,22 @@
+{
+  "note": "Written by `npm run fonts:subset` from the built pages; do not edit by hand.",
+  "characters": " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~·×éμ–’“”→↗",
+  "faces": {
+    "cormorant-garamond-500-normal": {
+      "source": "@fontsource/cormorant-garamond@5.3.0 cormorant-garamond-latin-500-normal.woff2",
+      "sha256": "8c7c56d2f2866d8a080a38d30da7d81a1448b599f3af3ef8b48fd31b7fe472af"
+    },
+    "cormorant-garamond-400-italic": {
+      "source": "@fontsource/cormorant-garamond@5.3.0 cormorant-garamond-latin-400-italic.woff2",
+      "sha256": "4b9edd3da4f9af07ae749663c8e1a2c7b8381d6271d28a9d4c7e23fc4e621c93"
+    },
+    "inter-400-normal": {
+      "source": "@fontsource/inter@5.3.0 inter-latin-400-normal.woff2",
+      "sha256": "e61217900786d00a3bcfa60c5d6df4dedc4ba13c539fde13fabf733a37cf9206"
+    },
+    "jetbrains-mono-400-normal": {
+      "source": "@fontsource/jetbrains-mono@5.3.0 jetbrains-mono-latin-400-normal.woff2",
+      "sha256": "0b00cdce98cf42b10267cacc12fd575f16f708087f0d8a941441fb075fa4559e"
+    }
+  }
+}

@@ -23,10 +23,10 @@ const home = parse(html);
 
 /** The four faces every page draws with; bold is Inter 400 with a stroke, so there is no fifth file. */
 const HOME_FACES = [
-  'cormorant-garamond-latin-500-normal',
-  'cormorant-garamond-latin-400-italic',
-  'inter-latin-400-normal',
-  'jetbrains-mono-latin-400-normal',
+  'cormorant-garamond-500-normal',
+  'cormorant-garamond-400-italic',
+  'inter-400-normal',
+  'jetbrains-mono-400-normal',
 ];
 
 /** The size of the one woff2 file of `face` in dist/_astro. */

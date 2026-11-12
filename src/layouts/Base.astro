@@ -2,13 +2,10 @@
 // The page shell every route uses: the page and social-card metadata, fonts, tokens, the
 // theme scripts, the shared hatch patterns, the header and the footer. Pages put the
 // relief in the `art` slot.
-import '@fontsource/cormorant-garamond/latin-500.css';
-import '@fontsource/cormorant-garamond/latin-400-italic.css';
-import '@fontsource/inter/latin-400.css';
-import '@fontsource/jetbrains-mono/latin-400.css';
+import '../styles/fonts.css';
 import '../styles/tokens.css';
 import '../styles/global.css';
-import displayFont from '@fontsource/cormorant-garamond/files/cormorant-garamond-latin-500-normal.woff2?url';
+import displayFont from '../assets/fonts/cormorant-garamond-500-normal.woff2?url';
 import Footer from '../components/Footer.astro';
 import Header from '../components/Header.astro';
 import { HATCH_PATTERNS } from '../lib/art.ts';
@@ -39,7 +36,10 @@ const canonical = new URL(Astro.url.pathname, SITE.url).href;
 /**
  * The phone-width relief for each system theme, when the page has one. It is the largest
  * paint on phones; preloading it starts its download with the font's instead of after
- * styles resolve. A stored theme that differs from the system's costs one extra image.
+ * styles resolve, and fetchpriority="high" keeps it from starting as a low-priority image
+ * (Lighthouse then leaves it out of its LCP estimate only on some runs, so the measured
+ * LCP swung between about 1.43 and 1.50 s). A stored theme that differs from the system's
+ * costs one extra image.
  */
 const phoneRelief = Astro.slots.has('art')
   ? { light: await reliefImage('day', 750, 'avif'), dark: await reliefImage('night', 750, 'avif') }
@@ -71,6 +71,7 @@ const phoneRelief = Astro.slots.has('art')
             href={href}
             as="image"
             type="image/avif"
+            fetchpriority="high"
             media={`(width <= 640px) and (prefers-color-scheme: ${scheme})`}
           />
         ))

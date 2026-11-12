@@ -17,13 +17,13 @@ const css = [
 ].join('\n');
 
 const FONTS = [
-  'cormorant-garamond-latin-500-normal',
-  'cormorant-garamond-latin-400-italic',
-  'inter-latin-400-normal',
-  'jetbrains-mono-latin-400-normal',
+  'cormorant-garamond-500-normal',
+  'cormorant-garamond-400-italic',
+  'inter-400-normal',
+  'jetbrains-mono-400-normal',
 ];
 
-/** `/_astro/inter-latin-400-normal.Ab12Cd.woff2` → `inter-latin-400-normal`. */
+/** `/_astro/inter-400-normal.Ab12Cd.woff2` → `inter-400-normal`. */
 const face = (url: string) => basename(url).split('.')[0];
 
 test('theme init runs before the first stylesheet', () => {
@@ -74,7 +74,7 @@ test('the display font is preloaded', () => {
   const fonts = root.querySelectorAll('link[rel="preload"][as="font"]');
   expect(fonts).toHaveLength(1);
   const href = fonts[0].getAttribute('href')!;
-  expect(face(href)).toBe('cormorant-garamond-latin-500-normal');
+  expect(face(href)).toBe('cormorant-garamond-500-normal');
   expect(fonts[0].hasAttribute('crossorigin')).toBe(true);
   // The preload must fetch the same file the @font-face uses, or the font downloads twice.
   expect(css).toContain(href);
